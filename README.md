@@ -1,3 +1,3 @@
-# this is my readme
+# Collatz Racing!
 
-this text will be on the website
+Better than Chess.
