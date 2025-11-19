@@ -2,7 +2,7 @@
 // Collatz Speed Challenge
 // =========================
 
-// Game state variables
+// Game state
 let currentNum, startingNumber, totalSteps, stepCount;
 let startTime, timerInterval;
 let sequence = [];
@@ -13,6 +13,39 @@ let currentUser = null;
 // -------------------------
 firebaseOnAuthStateChanged(firebaseAuth, (user) => {
     currentUser = user;
+    if (user) {
+        // User signed in → show Start Screen
+        document.getElementById('loginScreen').classList.add('hidden');
+        document.getElementById('startScreen').classList.remove('hidden');
+        document.getElementById('userInfo').textContent = `Signed in as: ${user.displayName || 'Anonymous'}`;
+        document.getElementById('userInfo').classList.remove('hidden');
+    } else {
+        // Not signed in → show Login Screen
+        document.getElementById('loginScreen').classList.remove('hidden');
+        document.getElementById('startScreen').classList.add('hidden');
+        document.getElementById('userInfo').classList.add('hidden');
+    }
+});
+
+// -------------------------
+// Login / Logout Handlers
+// -------------------------
+document.getElementById('loginBtn').addEventListener('click', async () => {
+    try {
+        await firebaseSignInWithPopup(firebaseAuth, firebaseProvider);
+    } catch (err) {
+        console.error("Login failed:", err);
+        alert("Login failed. Check console.");
+    }
+});
+
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+    try {
+        await firebaseSignOut(firebaseAuth);
+    } catch (err) {
+        console.error("Logout failed:", err);
+        alert("Logout failed. Check console.");
+    }
 });
 
 // -------------------------
@@ -40,7 +73,7 @@ function generateStartingNumber() {
 }
 
 // -------------------------
-// Game Start
+// Start Game
 // -------------------------
 function startGame() {
     startingNumber = generateStartingNumber();
@@ -73,7 +106,7 @@ function startGame() {
 }
 
 // -------------------------
-// Timer & History
+// Timer & Sequence History
 // -------------------------
 function updateTimer() {
     const elapsed = (Date.now() - startTime) / 1000;
@@ -82,13 +115,13 @@ function updateTimer() {
 
 function updateSequenceHistory() {
     const historyDiv = document.getElementById('sequenceHistory');
-    historyDiv.innerHTML = sequence.map((num, idx) => 
+    historyDiv.innerHTML = sequence.map((num, idx) =>
         `<span class="px-3 py-1 bg-white/20 rounded-lg text-sm ${idx === sequence.length - 1 ? 'ring-2 ring-blue-500' : ''}">${num}</span>`
     ).join('');
 }
 
 // -------------------------
-// Answer Submission
+// Submit Answer
 // -------------------------
 function submitAnswer() {
     const input = document.getElementById('answerInput');
@@ -103,7 +136,7 @@ function submitAnswer() {
     }
 
     if (answer !== correct) {
-        // WRONG ANSWER
+        // Wrong
         clearInterval(timerInterval);
         document.getElementById('answerInput').disabled = true;
 
@@ -117,7 +150,7 @@ function submitAnswer() {
         return;
     }
 
-    // CORRECT
+    // Correct
     currentNum = answer;
     stepCount++;
     sequence.push(currentNum);
@@ -147,7 +180,7 @@ function submitAnswer() {
 function showResult(success, wrongAnswer, correctAnswer) {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
-    // Save to RTDB
+    // Save result to RTDB
     saveScoreRTDB(success, parseFloat(elapsed), stepCount, startingNumber);
 
     document.getElementById('gameScreen').classList.add('hidden');
@@ -159,12 +192,12 @@ function showResult(success, wrongAnswer, correctAnswer) {
     if (success) {
         document.getElementById('resultEmoji').textContent = '🎉';
         document.getElementById('resultTitle').textContent = 'Perfect!';
-        document.getElementById('failureReason').innerHTML = 
+        document.getElementById('failureReason').innerHTML =
             `<p class="text-green-400 font-semibold">You completed the sequence without mistakes!</p>`;
     } else {
         document.getElementById('resultEmoji').textContent = '💥';
         document.getElementById('resultTitle').textContent = 'Game Over!';
-        document.getElementById('failureReason').innerHTML = 
+        document.getElementById('failureReason').innerHTML =
             `<div class="mt-4 p-4 bg-red-500/20 rounded-lg border border-red-500/50">
                 <p class="text-red-400 font-semibold mb-2">Wrong Answer!</p>
                 <p class="text-gray-300 text-sm">You entered <span class="text-red-400 font-bold">${wrongAnswer}</span></p>
@@ -174,11 +207,11 @@ function showResult(success, wrongAnswer, correctAnswer) {
 }
 
 // -------------------------
-// Save score to RTDB
+// Save Score to RTDB
 // -------------------------
 async function saveScoreRTDB(success, time, steps, startNum) {
     if (!currentUser) {
-        console.warn("User not logged in — skipping RTDB save.");
+        console.warn("User not logged in — skipping save.");
         return;
     }
 
