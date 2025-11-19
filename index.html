@@ -1,220 +1,174 @@
 <!DOCTYPE html>
-
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Collatz Challenge</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @keyframes pulse-glow {
-            0%, 100% { box-shadow: 0 0 20px rgba(59, 130, 246, 0.5); }
-            50% { box-shadow: 0 0 40px rgba(59, 130, 246, 0.8); }
-        }
-        .pulse-glow {
-            animation: pulse-glow 2s ease-in-out infinite;
-        }
-        @keyframes slide-in {
-            from { transform: translateY(-20px); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
-        }
-        .slide-in {
-            animation: slide-in 0.5s ease-out;
-        }
-        @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            10%, 30%, 50%, 70%, 90% { transform: translateX(-10px); }
-            20%, 40%, 60%, 80% { transform: translateX(10px); }
-        }
-        .shake {
-            animation: shake 0.5s ease-in-out;
-        }
-        @keyframes fade-out {
-            from { opacity: 1; }
-            to { opacity: 0; }
-        }
-        .fade-out {
-            animation: fade-out 0.5s ease-out forwards;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Collatz Challenge</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+/* Animations */
+@keyframes pulse-glow {0%,100%{box-shadow:0 0 20px rgba(59,130,246,0.5);}50%{box-shadow:0 0 40px rgba(59,130,246,0.8);}}
+.pulse-glow{animation:pulse-glow 2s ease-in-out infinite;}
+@keyframes slide-in{from{transform:translateY(-20px);opacity:0;}to{transform:translateY(0);opacity:1;}}
+.slide-in{animation:slide-in 0.5s ease-out;}
+@keyframes shake{0%,100%{transform:translateX(0);}10%,30%,50%,70%,90%{transform:translateX(-10px);}20%,40%,60%,80%{transform:translateX(10px);}}
+.shake{animation:shake 0.5s ease-in-out;}
+@keyframes fade-out{from{opacity:1;}to{opacity:0;}}
+.fade-out{animation:fade-out 0.5s ease-out forwards;}
+</style>
 </head>
 <body class="bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 min-h-screen text-white">
-    <div class="container mx-auto px-4 py-8 max-w-4xl">
-        <!-- Header -->
-        <div class="text-center mb-8">
-            <h1 class="text-5xl font-bold mb-4 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-                Collatz Speed Challenge
-            </h1>
-            <p class="text-gray-300 text-lg">Calculate the sequence perfectly - one mistake and you lose!</p>
-        </div>
+<div class="container mx-auto px-4 py-8 max-w-4xl">
 
-    <!-- Start Screen -->
-    <div id="startScreen" class="bg-white/10 backdrop-blur-md rounded-2xl p-8 text-center border border-white/20">
-        <div class="mb-6">
-            <div class="text-6xl mb-4">⚡</div>
-            <h2 class="text-3xl font-bold mb-4">Ready for the Challenge?</h2>
-            <p class="text-gray-300 mb-2">Calculate the Collatz sequence as fast as you can</p>
-            <p class="text-red-400 font-bold mb-6">⚠️ One wrong answer = Game Over!</p>
-            <div class="bg-white/5 rounded-lg p-4 mb-6 max-w-md mx-auto">
-                <p class="text-sm text-gray-300 mb-2 font-semibold">Collatz Rules:</p>
-                <p class="text-sm text-blue-300">• If EVEN: divide by 2</p>
-                <p class="text-sm text-purple-300">• If ODD: multiply by 3, then add 1</p>
-                <p class="text-sm text-green-300 mt-2">• Goal: Reach 1</p>
-            </div>
-        </div>
-        <button onclick="startGame()" 
-            class="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-bold py-4 px-8 rounded-lg transition-all transform hover:scale-105 pulse-glow text-xl">
-            Start Challenge!
+  <!-- Login Screen -->
+  <div id="loginScreen" class="bg-white/10 backdrop-blur-md rounded-2xl p-8 text-center border border-white/20">
+    <div class="text-6xl mb-4">🔐</div>
+    <h2 class="text-3xl font-bold mb-4">Sign in to Play</h2>
+    <p class="text-gray-300 mb-6">Sign in with Google to save your scores.</p>
+    <button id="loginBtn"
+      class="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-bold py-4 px-8 rounded-lg transition-all transform hover:scale-105 pulse-glow text-xl">
+      Sign in with Google
+    </button>
+    <div id="userInfo" class="mt-4 text-gray-300 text-sm hidden"></div>
+  </div>
+
+  <!-- Start Screen -->
+  <div id="startScreen" class="hidden bg-white/10 backdrop-blur-md rounded-2xl p-8 text-center border border-white/20">
+    <div class="mb-6">
+      <div class="text-6xl mb-4">⚡</div>
+      <h2 class="text-3xl font-bold mb-4">Ready for the Challenge?</h2>
+      <p class="text-gray-300 mb-2">Calculate the Collatz sequence as fast as you can</p>
+      <p class="text-red-400 font-bold mb-6">⚠️ One wrong answer = Game Over!</p>
+      <div class="bg-white/5 rounded-lg p-4 mb-6 max-w-md mx-auto">
+        <p class="text-sm text-gray-300 mb-2 font-semibold">Collatz Rules:</p>
+        <p class="text-sm text-blue-300">• If EVEN: divide by 2</p>
+        <p class="text-sm text-purple-300">• If ODD: multiply by 3, then add 1</p>
+        <p class="text-sm text-green-300 mt-2">• Goal: Reach 1</p>
+      </div>
+    </div>
+    <button onclick="startGame()"
+      class="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-bold py-4 px-8 rounded-lg transition-all transform hover:scale-105 pulse-glow text-xl">
+      Start Challenge!
+    </button>
+    <div class="mt-6">
+      <button id="logoutBtn" class="text-sm text-red-400 underline">Sign out</button>
+    </div>
+  </div>
+
+  <!-- Game Screen -->
+  <div id="gameScreen" class="hidden space-y-6">
+    <!-- Stats Bar -->
+    <div class="grid grid-cols-3 gap-4">
+      <div class="bg-white/10 backdrop-blur-md rounded-xl p-4 text-center border border-white/20">
+        <p class="text-sm text-gray-400 mb-1">Starting Number</p>
+        <p class="text-3xl font-bold text-yellow-400" id="startingNum"></p>
+      </div>
+      <div class="bg-white/10 backdrop-blur-md rounded-xl p-4 text-center border border-white/20">
+        <p class="text-sm text-gray-400 mb-1">Steps Taken</p>
+        <p class="text-3xl font-bold text-blue-400" id="stepCount">0</p>
+      </div>
+      <div class="bg-white/10 backdrop-blur-md rounded-xl p-4 text-center border border-white/20">
+        <p class="text-sm text-gray-400 mb-1">Time</p>
+        <p class="text-3xl font-bold text-purple-400" id="timer">0.0s</p>
+      </div>
+    </div>
+
+    <!-- Current Number -->
+    <div class="bg-gradient-to-r from-blue-500/20 to-purple-500/20 backdrop-blur-md rounded-2xl p-8 text-center border-2 border-blue-500/50">
+      <p class="text-sm text-gray-300 mb-3">Current Number</p>
+      <div class="text-7xl font-bold text-white mb-4" id="currentNumber"></div>
+      <div class="bg-white/5 rounded-lg h-6 overflow-hidden max-w-md mx-auto">
+        <div id="progressBar" class="bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 h-full transition-all duration-300" style="width:0%"></div>
+      </div>
+      <p class="text-sm text-gray-400 mt-2">Progress to 1</p>
+    </div>
+
+    <!-- Input -->
+    <div class="bg-white/10 backdrop-blur-md rounded-2xl p-8 border border-white/20">
+      <label class="block text-center text-lg font-semibold mb-4 text-gray-300">What's the next number?</label>
+      <div class="flex gap-3">
+        <input type="number" id="answerInput"
+          class="flex-1 px-6 py-4 bg-white/20 border-2 border-blue-500/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white text-3xl text-center font-bold placeholder-gray-400"
+          placeholder="?" autofocus>
+        <button onclick="submitAnswer()"
+          class="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-bold py-4 px-8 rounded-lg transition-all transform hover:scale-105 text-xl">
+          Submit
         </button>
+      </div>
+      <div id="feedback" class="mt-4 text-center text-lg font-semibold h-8"></div>
     </div>
 
-    <!-- Game Screen -->
-    <div id="gameScreen" class="hidden space-y-6">
-        <!-- Stats Bar -->
-        <div class="grid grid-cols-3 gap-4">
-            <div class="bg-white/10 backdrop-blur-md rounded-xl p-4 text-center border border-white/20">
-                <p class="text-sm text-gray-400 mb-1">Starting Number</p>
-                <p class="text-3xl font-bold text-yellow-400" id="startingNum"></p>
-            </div>
-            <div class="bg-white/10 backdrop-blur-md rounded-xl p-4 text-center border border-white/20">
-                <p class="text-sm text-gray-400 mb-1">Steps Taken</p>
-                <p class="text-3xl font-bold text-blue-400" id="stepCount">0</p>
-            </div>
-            <div class="bg-white/10 backdrop-blur-md rounded-xl p-4 text-center border border-white/20">
-                <p class="text-sm text-gray-400 mb-1">Time</p>
-                <p class="text-3xl font-bold text-purple-400" id="timer">0.0s</p>
-            </div>
-        </div>
-
-        <!-- Current Number Display -->
-        <div class="bg-gradient-to-r from-blue-500/20 to-purple-500/20 backdrop-blur-md rounded-2xl p-8 text-center border-2 border-blue-500/50">
-            <p class="text-sm text-gray-300 mb-3">Current Number</p>
-            <div class="text-7xl font-bold text-white mb-4" id="currentNumber"></div>
-            <div class="bg-white/5 rounded-lg h-6 overflow-hidden max-w-md mx-auto">
-                <div id="progressBar" class="bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 h-full transition-all duration-300" style="width: 0%"></div>
-            </div>
-            <p class="text-sm text-gray-400 mt-2">Progress to 1</p>
-        </div>
-
-        <!-- Input Section -->
-        <div class="bg-white/10 backdrop-blur-md rounded-2xl p-8 border border-white/20">
-            <label class="block text-center text-lg font-semibold mb-4 text-gray-300">
-                What's the next number?
-            </label>
-            <div class="flex gap-3">
-                <input type="number" id="answerInput" 
-                    class="flex-1 px-6 py-4 bg-white/20 border-2 border-blue-500/50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-white text-3xl text-center font-bold placeholder-gray-400"
-                    placeholder="?"
-                    autofocus>
-                <button onclick="submitAnswer()" 
-                    class="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-bold py-4 px-8 rounded-lg transition-all transform hover:scale-105 text-xl">
-                    Submit
-                </button>
-            </div>
-            <div id="feedback" class="mt-4 text-center text-lg font-semibold h-8"></div>
-        </div>
-
-        <!-- Sequence History -->
-        <div class="bg-white/10 backdrop-blur-md rounded-xl p-6 border border-white/20">
-            <h3 class="text-lg font-semibold mb-3 text-gray-300">Sequence History</h3>
-            <div id="sequenceHistory" class="flex flex-wrap gap-2"></div>
-        </div>
+    <!-- Sequence History -->
+    <div class="bg-white/10 backdrop-blur-md rounded-xl p-6 border border-white/20">
+      <h3 class="text-lg font-semibold mb-3 text-gray-300">Sequence History</h3>
+      <div id="sequenceHistory" class="flex flex-wrap gap-2"></div>
     </div>
+  </div>
 
-    <!-- Result Screen -->
-    <div id="resultScreen" class="hidden bg-white/10 backdrop-blur-md rounded-2xl p-8 text-center border border-white/20 slide-in">
-        <div class="text-8xl mb-6" id="resultEmoji"></div>
-        <h2 class="text-4xl font-bold mb-4" id="resultTitle"></h2>
-        <div class="bg-white/5 rounded-lg p-6 mb-6 max-w-md mx-auto">
-            <div class="grid grid-cols-2 gap-4 text-left">
-                <div>
-                    <p class="text-sm text-gray-400">Total Steps</p>
-                    <p class="text-2xl font-bold text-blue-400" id="finalSteps"></p>
-                </div>
-                <div>
-                    <p class="text-sm text-gray-400">Time</p>
-                    <p class="text-2xl font-bold text-purple-400" id="finalTime"></p>
-                </div>
-            </div>
-            <div class="mt-4" id="failureReason"></div>
+  <!-- Result Screen -->
+  <div id="resultScreen" class="hidden bg-white/10 backdrop-blur-md rounded-2xl p-8 text-center border border-white/20 slide-in">
+    <div class="text-8xl mb-6" id="resultEmoji"></div>
+    <h2 class="text-4xl font-bold mb-4" id="resultTitle"></h2>
+    <div class="bg-white/5 rounded-lg p-6 mb-6 max-w-md mx-auto">
+      <div class="grid grid-cols-2 gap-4 text-left">
+        <div>
+          <p class="text-sm text-gray-400">Total Steps</p>
+          <p class="text-2xl font-bold text-blue-400" id="finalSteps"></p>
         </div>
-        <button onclick="startGame()" 
-            class="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-bold py-3 px-8 rounded-lg transition-all transform hover:scale-105">
-            Try Again!
-        </button>
+        <div>
+          <p class="text-sm text-gray-400">Time</p>
+          <p class="text-2xl font-bold text-purple-400" id="finalTime"></p>
+        </div>
+      </div>
+      <div class="mt-4" id="failureReason"></div>
     </div>
+    <button onclick="startGame()"
+      class="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-bold py-3 px-8 rounded-lg transition-all transform hover:scale-105">
+      Try Again!
+    </button>
+  </div>
 </div>
 
-<!-- Firebase SDK *uwu*~ -->
+<!-- Firebase SDK -->
 <script type="module">
-    // Import the functions you need from the SDKs you need
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
-    import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-analytics.js";
-    import { 
-        getAuth, 
-        GoogleAuthProvider, 
-        signInWithPopup, 
-        signOut, 
-        onAuthStateChanged 
-    } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js";
-    import { 
-        getFirestore, 
-        doc, 
-        setDoc, 
-        getDoc,
-        collection,
-        getDocs,
-        orderBy,
-        query 
-    } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js";
-    
-    // Your web app's Firebase configuration
-    const firebaseConfig = {
-        apiKey: "AIzaSyB9oK73wo05B6YHViDTUsh2gT-04G4FpP8",
-        authDomain: "collatz-racing.firebaseapp.com",
-        databaseURL: "https://collatz-racing-default-rtdb.firebaseio.com", 
-        projectId: "collatz-racing",
-        storageBucket: "collatz-racing.firebasestorage.app",
-        messagingSenderId: "78351409018",
-        appId: "1:78351409018:web:ff8ecfd3e6018f896dc0c3",
-        measurementId: "G-5J0FS12HGE"
-      };
-    
-    // Initialize Firebase
-    const app = initializeApp(firebaseConfig);
-    const analytics = getAnalytics(app);
-    const auth = getAuth(app);
-    const db = getFirestore(app);
-    const provider = new GoogleAuthProvider();
-    
-    // Make auth and db available globally
-    window.firebaseApp = app;
-    window.firebaseAuth = auth;
-    window.firebaseDb = db;
-    window.googleProvider = provider;
-    
-    // Export auth functions
-    window.firebaseSignInWithPopup = signInWithPopup;
-    window.firebaseSignOut = signOut;
-    window.firebaseOnAuthStateChanged = onAuthStateChanged;
-    
-    // Export firestore functions
-    window.firebaseDoc = doc;
-    window.firebaseSetDoc = setDoc;
-    window.firebaseGetDoc = getDoc;
-    window.firebaseCollection = collection;
-    window.firebaseGetDocs = getDocs;
-    window.firebaseQuery = query;
-    window.firebaseOrderBy = orderBy;
-    
-    // Initialize the main app after Firebase is ready
-    window.firebaseReady = true;
-    if (window.initApp) {
-        window.initApp();
-    }
-</script>
-    
-<script src="index.js"></script>
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
+import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-analytics.js";
+import { 
+  getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged 
+} from "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js";
+import { 
+  getDatabase, ref, set, push 
+} from "https://www.gstatic.com/firebasejs/12.4.0/firebase-database.js";
 
+const firebaseConfig = {
+    apiKey: "AIzaSyB9oK73wo05B6YHViDTUsh2gT-04G4FpP8",
+    authDomain: "collatz-racing.firebaseapp.com",
+    databaseURL: "https://collatz-racing-default-rtdb.firebaseio.com", 
+    projectId: "collatz-racing",
+    storageBucket: "collatz-racing.firebasestorage.app",
+    messagingSenderId: "78351409018",
+    appId: "1:78351409018:web:ff8ecfd3e6018f896dc0c3",
+    measurementId: "G-5J0FS12HGE"
+};
+
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
+const auth = getAuth(app);
+const provider = new GoogleAuthProvider();
+const rtdb = getDatabase(app);
+
+// Expose Firebase functions
+window.firebaseAuth = auth;
+window.firebaseProvider = provider;
+window.firebaseSignInWithPopup = signInWithPopup;
+window.firebaseSignOut = signOut;
+window.firebaseOnAuthStateChanged = onAuthStateChanged;
+window.firebaseRTDB = rtdb;
+window.firebaseRTDBRef = ref;
+window.firebaseRTDBSet = set;
+window.firebaseRTDBPush = push;
+</script>
+
+<script src="index.js"></script>
 </body>
 </html>
