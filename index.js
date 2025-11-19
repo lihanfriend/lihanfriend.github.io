@@ -1,12 +1,16 @@
-// =========================
-// Collatz Speed Challenge
-// =========================
+// ==========================
+// Collatz 1v1 Duel JS
+// ==========================
 
-// Game state
-let currentNum, startingNumber, totalSteps, stepCount;
-let startTime, timerInterval;
-let sequence = [];
+// Game & duel state
 let currentUser = null;
+let duelID = null;
+let startNumber = null;
+let currentNum, stepCount;
+let opponentData = { currentNumber: null, steps: 0 };
+let timerInterval, startTime;
+let sequence = [];
+let duelRef = null;
 
 // -------------------------
 // Firebase Auth Listener
@@ -14,234 +18,231 @@ let currentUser = null;
 firebaseOnAuthStateChanged(firebaseAuth, (user) => {
     currentUser = user;
     if (user) {
-        // User signed in → show Start Screen
         document.getElementById('loginScreen').classList.add('hidden');
-        document.getElementById('startScreen').classList.remove('hidden');
+        document.getElementById('duelLobby').classList.remove('hidden');
         document.getElementById('userInfo').textContent = `Signed in as: ${user.displayName || 'Anonymous'}`;
         document.getElementById('userInfo').classList.remove('hidden');
     } else {
-        // Not signed in → show Login Screen
         document.getElementById('loginScreen').classList.remove('hidden');
-        document.getElementById('startScreen').classList.add('hidden');
+        document.getElementById('duelLobby').classList.add('hidden');
         document.getElementById('userInfo').classList.add('hidden');
     }
 });
 
 // -------------------------
-// Login / Logout Handlers
+// Login / Logout
 // -------------------------
 document.getElementById('loginBtn').addEventListener('click', async () => {
-    try {
-        await firebaseSignInWithPopup(firebaseAuth, firebaseProvider);
-    } catch (err) {
-        console.error("Login failed:", err);
-        alert("Login failed. Check console.");
-    }
+    try { await firebaseSignInWithPopup(firebaseAuth, firebaseProvider); }
+    catch(err){ alert("Login failed. Check console."); console.error(err); }
 });
-
 document.getElementById('logoutBtn').addEventListener('click', async () => {
-    try {
-        await firebaseSignOut(firebaseAuth);
-    } catch (err) {
-        console.error("Logout failed:", err);
-        alert("Logout failed. Check console.");
-    }
+    try { await firebaseSignOut(firebaseAuth); }
+    catch(err){ alert("Logout failed. Check console."); console.error(err); }
 });
 
 // -------------------------
 // Collatz Functions
 // -------------------------
-function collatzStep(n) {
-    return n % 2 === 0 ? n / 2 : 3 * n + 1;
-}
+function collatzStep(n){ return n%2===0 ? n/2 : 3*n+1; }
+function getTotalSteps(n){ let t=n,c=0; while(t!==1){ t=collatzStep(t); c++; } return c; }
+function generateStartingNumber(){ while(true){ const n=Math.floor(Math.random()*100)+10; const s=getTotalSteps(n); if(s>=5 && s<=20) return n; }}
 
-function getTotalSteps(n) {
-    let temp = n, count = 0;
-    while (temp !== 1) {
-        temp = collatzStep(temp);
-        count++;
-    }
-    return count;
-}
+// -------------------------
+// Duel Creation / Joining
+// -------------------------
+document.getElementById('createDuelBtn').addEventListener('click', async ()=>{
+    startNumber = generateStartingNumber();
+    const duelsRef = firebaseRTDBRef(firebaseRTDB,'duels');
+    duelRef = firebaseRTDBPush(duelsRef);
+    duelID = duelRef.key;
 
-function generateStartingNumber() {
-    while (true) {
-        const num = Math.floor(Math.random() * 100) + 10;
-        const steps = getTotalSteps(num);
-        if (steps >= 5 && steps <= 20) return num;
-    }
+    await firebaseRTDBSet(duelRef,{
+        startNumber,
+        status:'pending',
+        player1:{
+            uid: currentUser.uid,
+            displayName: currentUser.displayName,
+            currentNumber: startNumber,
+            steps:0,
+            finished:false
+        }
+    });
+
+    document.getElementById('duelStatus').textContent=`Duel created! ID: ${duelID}. Waiting for opponent...`;
+    listenDuel();
+});
+
+document.getElementById('joinDuelBtn').addEventListener('click', async ()=>{
+    const inputID = document.getElementById('duelIDInput').value.trim();
+    if(!inputID){ alert("Enter a duel ID"); return; }
+    duelID = inputID;
+    duelRef = firebaseRTDBRef(firebaseRTDB,`duels/${duelID}`);
+
+    // Get start number from duel
+    firebaseRTDBOnValue(duelRef, async snapshot=>{
+        const data = snapshot.val();
+        if(!data){ alert("Duel not found!"); duelID=null; return; }
+
+        if(!data.player2 && data.status==='pending'){
+            startNumber = data.startNumber;
+            await firebaseRTDBSet(firebaseRTDBRef(firebaseRTDB,`duels/${duelID}/player2`),{
+                uid:currentUser.uid,
+                displayName:currentUser.displayName,
+                currentNumber:startNumber,
+                steps:0,
+                finished:false
+            });
+            await firebaseRTDBSet(firebaseRTDBRef(firebaseRTDB,`duels/${duelID}/status`),'active');
+            document.getElementById('duelStatus').textContent=`Joined duel ${duelID}. Game starting!`;
+            startGame();
+        } else if(data.status==='active'){
+            alert("Duel already in progress!");
+        } else{
+            alert("Cannot join this duel.");
+        }
+    }, {once:true});
+    listenDuel();
+});
+
+// -------------------------
+// Listen for duel updates
+// -------------------------
+function listenDuel(){
+    firebaseRTDBOnValue(duelRef, snapshot=>{
+        const data = snapshot.val();
+        if(!data) return;
+
+        // Identify opponent
+        let opponentKey = data.player1.uid===currentUser.uid?'player2':'player1';
+        if(!data[opponentKey]) return;
+
+        opponentData.currentNumber = data[opponentKey].currentNumber;
+        opponentData.steps = data[opponentKey].steps;
+
+        document.getElementById('opponentNumber').textContent = opponentData.currentNumber;
+        document.getElementById('opponentStepCount').textContent = opponentData.steps;
+
+        // Check if duel finished
+        if(data.player1.finished && data.player2.finished){
+            showResult(determineWinner(data));
+        }
+    });
 }
 
 // -------------------------
 // Start Game
 // -------------------------
-function startGame() {
-    startingNumber = generateStartingNumber();
-    currentNum = startingNumber;
-    totalSteps = getTotalSteps(startingNumber);
-    stepCount = 0;
-    sequence = [startingNumber];
-
-    // Update UI
-    document.getElementById('startScreen').classList.add('hidden');
-    document.getElementById('resultScreen').classList.add('hidden');
+function startGame(){
+    currentNum=startNumber; stepCount=0; sequence=[currentNum];
+    document.getElementById('duelLobby').classList.add('hidden');
     document.getElementById('gameScreen').classList.remove('hidden');
-
-    document.getElementById('startingNum').textContent = startingNumber;
-    document.getElementById('currentNumber').textContent = currentNum;
-    document.getElementById('stepCount').textContent = stepCount;
-    document.getElementById('answerInput').value = '';
-    document.getElementById('answerInput').disabled = false;
-    document.getElementById('feedback').textContent = '';
-    document.getElementById('progressBar').style.width = '0%';
-
-    updateSequenceHistory();
-
-    // Start timer
-    startTime = Date.now();
-    timerInterval = setInterval(updateTimer, 100);
-
-    // Focus input
-    setTimeout(() => document.getElementById('answerInput').focus(), 100);
+    document.getElementById('currentNumber').textContent=currentNum;
+    document.getElementById('stepCount').textContent=stepCount;
+    document.getElementById('answerInput').value='';
+    document.getElementById('answerInput').disabled=false;
+    document.getElementById('feedback').textContent='';
+    startTime=Date.now();
+    timerInterval=setInterval(updateTimer,100);
+    setTimeout(()=>document.getElementById('answerInput').focus(),100);
 }
 
 // -------------------------
-// Timer & Sequence History
+// Timer
 // -------------------------
-function updateTimer() {
-    const elapsed = (Date.now() - startTime) / 1000;
-    document.getElementById('timer').textContent = elapsed.toFixed(1) + 's';
-}
-
-function updateSequenceHistory() {
-    const historyDiv = document.getElementById('sequenceHistory');
-    historyDiv.innerHTML = sequence.map((num, idx) =>
-        `<span class="px-3 py-1 bg-white/20 rounded-lg text-sm ${idx === sequence.length - 1 ? 'ring-2 ring-blue-500' : ''}">${num}</span>`
-    ).join('');
+function updateTimer(){
+    const elapsed = ((Date.now()-startTime)/1000).toFixed(1);
+    document.getElementById('timer')?.textContent = elapsed+'s';
 }
 
 // -------------------------
 // Submit Answer
 // -------------------------
-function submitAnswer() {
+document.getElementById('submitBtn').addEventListener('click', submitAnswer);
+document.getElementById('answerInput').addEventListener('keypress', e=>{if(e.key==='Enter') submitAnswer();});
+
+async function submitAnswer(){
     const input = document.getElementById('answerInput');
     const answer = parseInt(input.value);
     const correct = collatzStep(currentNum);
     const feedback = document.getElementById('feedback');
 
-    if (isNaN(answer)) {
-        feedback.textContent = '⚠️ Enter a number!';
-        feedback.className = 'mt-4 text-center text-lg font-semibold h-8 text-yellow-400';
-        return;
-    }
+    if(isNaN(answer)){ feedback.textContent='⚠️ Enter a number!'; feedback.className='text-yellow-400'; return; }
 
-    if (answer !== correct) {
-        // Wrong
+    if(answer!==correct){
         clearInterval(timerInterval);
-        document.getElementById('answerInput').disabled = true;
-
-        feedback.textContent = `✗ WRONG! (${currentNum} → ${correct})`;
-        feedback.className = 'mt-4 text-center text-lg font-semibold h-8 text-red-400';
-
-        const gameScreen = document.getElementById('gameScreen');
-        gameScreen.classList.add('shake');
-
-        setTimeout(() => showResult(false, answer, correct), 1000);
+        document.getElementById('answerInput').disabled=true;
+        feedback.textContent=`✗ WRONG! (${currentNum} → ${correct})`;
+        feedback.className='text-red-400';
+        // mark finished in DB
+        const playerKey = (await getPlayerKey());
+        await firebaseRTDBUpdate(firebaseRTDBRef(firebaseRTDB,`duels/${duelID}/${playerKey}`),{finished:true});
         return;
     }
 
     // Correct
-    currentNum = answer;
-    stepCount++;
-    sequence.push(currentNum);
+    currentNum=answer; stepCount++; sequence.push(currentNum);
+    document.getElementById('currentNumber').textContent=currentNum;
+    document.getElementById('stepCount').textContent=stepCount;
 
-    document.getElementById('currentNumber').textContent = currentNum;
-    document.getElementById('stepCount').textContent = stepCount;
-    document.getElementById('progressBar').style.width = (stepCount / totalSteps * 100) + '%';
+    // update RTDB
+    const playerKey = await getPlayerKey();
+    await firebaseRTDBUpdate(firebaseRTDBRef(firebaseRTDB,`duels/${duelID}/${playerKey}`),{
+        currentNumber:currentNum,
+        steps:stepCount
+    });
 
-    feedback.textContent = '✓ Correct!';
-    feedback.className = 'mt-4 text-center text-lg font-semibold h-8 text-green-400';
+    feedback.textContent='✓ Correct!'; feedback.className='text-green-400';
+    input.value=''; input.focus();
 
-    updateSequenceHistory();
-    input.value = '';
-
-    if (currentNum === 1) {
+    if(currentNum===1){
         clearInterval(timerInterval);
-        setTimeout(() => showResult(true), 500);
-        return;
+        await firebaseRTDBUpdate(firebaseRTDBRef(firebaseRTDB,`duels/${duelID}/${playerKey}`),{finished:true});
     }
+}
 
-    input.focus();
+// -------------------------
+// Determine winner
+// -------------------------
+function determineWinner(duelData){
+    const p1=duelData.player1; const p2=duelData.player2;
+    if(!p1 || !p2) return null;
+    if(p1.currentNumber===1 && p2.currentNumber===1){
+        return (p1.steps<=p2.steps)?p1.displayName:p2.displayName;
+    } else if(p1.currentNumber===1 || p1.finished){
+        return p2.currentNumber===1 && !p2.finished?p2.displayName:p1.displayName;
+    } else if(p2.currentNumber===1 || p2.finished){
+        return p1.currentNumber===1 && !p1.finished?p1.displayName:p2.displayName;
+    }
+    return null;
 }
 
 // -------------------------
 // Show Result
 // -------------------------
-function showResult(success, wrongAnswer, correctAnswer) {
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-
-    // Save result to RTDB
-    saveScoreRTDB(success, parseFloat(elapsed), stepCount, startingNumber);
-
+function showResult(winner){
     document.getElementById('gameScreen').classList.add('hidden');
     document.getElementById('resultScreen').classList.remove('hidden');
-
-    document.getElementById('finalSteps').textContent = stepCount;
-    document.getElementById('finalTime').textContent = elapsed + 's';
-
-    if (success) {
-        document.getElementById('resultEmoji').textContent = '🎉';
-        document.getElementById('resultTitle').textContent = 'Perfect!';
-        document.getElementById('failureReason').innerHTML =
-            `<p class="text-green-400 font-semibold">You completed the sequence without mistakes!</p>`;
-    } else {
-        document.getElementById('resultEmoji').textContent = '💥';
-        document.getElementById('resultTitle').textContent = 'Game Over!';
-        document.getElementById('failureReason').innerHTML =
-            `<div class="mt-4 p-4 bg-red-500/20 rounded-lg border border-red-500/50">
-                <p class="text-red-400 font-semibold mb-2">Wrong Answer!</p>
-                <p class="text-gray-300 text-sm">You entered <span class="text-red-400 font-bold">${wrongAnswer}</span></p>
-                <p class="text-gray-300 text-sm">Correct answer was <span class="text-green-400 font-bold">${correctAnswer}</span></p>
-            </div>`;
-    }
+    document.getElementById('resultTitle').textContent=winner?`Winner: ${winner}`:'Draw!';
+    document.getElementById('resultEmoji').textContent=winner?'🏆':'🤝';
+    document.getElementById('finalSteps').textContent=stepCount;
+    document.getElementById('finalTime').textContent=((Date.now()-startTime)/1000).toFixed(1)+'s';
 }
 
 // -------------------------
-// Save Score to RTDB
+// Return to Lobby
 // -------------------------
-async function saveScoreRTDB(success, time, steps, startNum) {
-    if (!currentUser) {
-        console.warn("User not logged in — skipping save.");
-        return;
-    }
-
-    const db = firebaseRTDB;
-    const scoreListRef = firebaseRTDBRef(db, `scores/${currentUser.uid}`);
-    const newScoreRef = firebaseRTDBPush(scoreListRef);
-
-    const data = {
-        uid: currentUser.uid,
-        displayName: currentUser.displayName || "Anonymous",
-        startNumber: startNum,
-        steps: steps,
-        time: time,
-        success: success,
-        timestamp: Date.now()
-    };
-
-    try {
-        await firebaseRTDBSet(newScoreRef, data);
-        console.log("RTDB score saved:", data);
-    } catch (err) {
-        console.error("RTDB save failed:", err);
-    }
+function returnToLobby(){
+    document.getElementById('resultScreen').classList.add('hidden');
+    document.getElementById('duelLobby').classList.remove('hidden');
 }
 
 // -------------------------
-// Enter Key Submission
+// Helpers
 // -------------------------
-document.addEventListener('DOMContentLoaded', () => {
-    document.getElementById('answerInput').addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') submitAnswer();
+async function getPlayerKey(){
+    const snap = await new Promise(resolve=>{
+        firebaseRTDBOnValue(duelRef, s=>resolve(s.val()), {once:true});
     });
-});
+    return (snap.player1.uid===currentUser.uid)?'player1':'player2';
+}
