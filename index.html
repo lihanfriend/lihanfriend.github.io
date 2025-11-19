@@ -48,7 +48,6 @@
             <p class="text-gray-300 text-lg">Calculate the sequence perfectly - one mistake and you lose!</p>
         </div>
 
-```
     <!-- Start Screen -->
     <div id="startScreen" class="bg-white/10 backdrop-blur-md rounded-2xl p-8 text-center border border-white/20">
         <div class="mb-6">
@@ -145,198 +144,77 @@
         </button>
     </div>
 </div>
-    
+
+<!-- Firebase SDK *uwu*~ -->
 <script type="module">
-  // Import the functions you need from the SDKs you need
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-app.js";
-  import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.6.0/firebase-analytics.js";
-  // TODO: Add SDKs for Firebase products that you want to use
-  // https://firebase.google.com/docs/web/setup#available-libraries
-
-  // Your web app's Firebase configuration
-  // For Firebase JS SDK v7.20.0 and later, measurementId is optional
-  const firebaseConfig = {
-    apiKey: "AIzaSyB9oK73wo05B6YHViDTUsh2gT-04G4FpP8",
-    authDomain: "collatz-racing.firebaseapp.com",
-    databaseURL: "https://collatz-racing-default-rtdb.firebaseio.com",
-    projectId: "collatz-racing",
-    storageBucket: "collatz-racing.firebasestorage.app",
-    messagingSenderId: "78351409018",
-    appId: "1:78351409018:web:ff8ecfd3e6018f896dc0c3",
-    measurementId: "G-5J0FS12HGE"
-  };
-
-  // Initialize Firebase
-  const app = initializeApp(firebaseConfig);
-  const analytics = getAnalytics(app);
+    // Import the functions you need from the SDKs you need
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
+    import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-analytics.js";
+    import { 
+        getAuth, 
+        GoogleAuthProvider, 
+        signInWithPopup, 
+        signOut, 
+        onAuthStateChanged 
+    } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js";
+    import { 
+        getFirestore, 
+        doc, 
+        setDoc, 
+        getDoc,
+        collection,
+        getDocs,
+        orderBy,
+        query 
+    } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js";
+    
+    // Your web app's Firebase configuration
+    const firebaseConfig = {
+        apiKey: "AIzaSyB9oK73wo05B6YHViDTUsh2gT-04G4FpP8",
+        authDomain: "collatz-racing.firebaseapp.com",
+        databaseURL: "https://collatz-racing-default-rtdb.firebaseio.com", 
+        projectId: "collatz-racing",
+        storageBucket: "collatz-racing.firebasestorage.app",
+        messagingSenderId: "78351409018",
+        appId: "1:78351409018:web:ff8ecfd3e6018f896dc0c3",
+        measurementId: "G-5J0FS12HGE"
+      };
+    
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const analytics = getAnalytics(app);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const provider = new GoogleAuthProvider();
+    
+    // Make auth and db available globally
+    window.firebaseApp = app;
+    window.firebaseAuth = auth;
+    window.firebaseDb = db;
+    window.googleProvider = provider;
+    
+    // Export auth functions
+    window.firebaseSignInWithPopup = signInWithPopup;
+    window.firebaseSignOut = signOut;
+    window.firebaseOnAuthStateChanged = onAuthStateChanged;
+    
+    // Export firestore functions
+    window.firebaseDoc = doc;
+    window.firebaseSetDoc = setDoc;
+    window.firebaseGetDoc = getDoc;
+    window.firebaseCollection = collection;
+    window.firebaseGetDocs = getDocs;
+    window.firebaseQuery = query;
+    window.firebaseOrderBy = orderBy;
+    
+    // Initialize the main app after Firebase is ready
+    window.firebaseReady = true;
+    if (window.initApp) {
+        window.initApp();
+    }
 </script>
     
-<script>
-    let currentNum, startingNumber, totalSteps, stepCount;
-    let startTime, timerInterval;
-    let sequence = [];
-
-    function collatzStep(n) {
-        if (n % 2 === 0) {
-            return n / 2;
-        } else {
-            return 3 * n + 1;
-        }
-    }
-
-    function getTotalSteps(n) {
-        let temp = n;
-        let count = 0;
-        while (temp !== 1) {
-            temp = collatzStep(temp);
-            count++;
-        }
-        return count;
-    }
-
-    function generateStartingNumber() {
-        while (true) {
-            let num = Math.floor(Math.random() * 100) + 10;
-            let steps = getTotalSteps(num);
-            if (steps >= 5 && steps <= 20) {
-                return num;
-            }
-        }
-    }
-
-    function startGame() {
-        // Generate starting number
-        startingNumber = generateStartingNumber();
-        currentNum = startingNumber;
-        totalSteps = getTotalSteps(startingNumber);
-        stepCount = 0;
-        sequence = [startingNumber];
-        
-        // Update UI
-        document.getElementById('startScreen').classList.add('hidden');
-        document.getElementById('resultScreen').classList.add('hidden');
-        document.getElementById('gameScreen').classList.remove('hidden');
-        
-        document.getElementById('startingNum').textContent = startingNumber;
-        document.getElementById('currentNumber').textContent = currentNum;
-        document.getElementById('stepCount').textContent = stepCount;
-        document.getElementById('answerInput').value = '';
-        document.getElementById('answerInput').disabled = false;
-        document.getElementById('feedback').textContent = '';
-        document.getElementById('progressBar').style.width = '0%';
-        
-        updateSequenceHistory();
-        
-        // Start timer
-        startTime = Date.now();
-        timerInterval = setInterval(updateTimer, 100);
-        
-        // Focus input
-        setTimeout(() => document.getElementById('answerInput').focus(), 100);
-    }
-
-    function updateTimer() {
-        const elapsed = (Date.now() - startTime) / 1000;
-        document.getElementById('timer').textContent = elapsed.toFixed(1) + 's';
-    }
-
-    function updateSequenceHistory() {
-        const historyDiv = document.getElementById('sequenceHistory');
-        historyDiv.innerHTML = sequence.map((num, idx) => 
-            `<span class="px-3 py-1 bg-white/20 rounded-lg text-sm ${idx === sequence.length - 1 ? 'ring-2 ring-blue-500' : ''}">${num}</span>`
-        ).join('');
-    }
-
-    function submitAnswer() {
-        const input = document.getElementById('answerInput');
-        const answer = parseInt(input.value);
-        const correct = collatzStep(currentNum);
-        const feedback = document.getElementById('feedback');
-        
-        if (isNaN(answer)) {
-            feedback.textContent = '⚠️ Enter a number!';
-            feedback.className = 'mt-4 text-center text-lg font-semibold h-8 text-yellow-400';
-            return;
-        }
-        
-        if (answer !== correct) {
-            // WRONG ANSWER - GAME OVER!
-            clearInterval(timerInterval);
-            document.getElementById('answerInput').disabled = true;
-            
-            feedback.textContent = `✗ WRONG! (${currentNum} → ${correct})`;
-            feedback.className = 'mt-4 text-center text-lg font-semibold h-8 text-red-400';
-            
-            const gameScreen = document.getElementById('gameScreen');
-            gameScreen.classList.add('shake');
-            
-            setTimeout(() => {
-                showResult(false, answer, correct);
-            }, 1000);
-            return;
-        }
-        
-        // CORRECT!
-        currentNum = answer;
-        stepCount++;
-        sequence.push(currentNum);
-        
-        document.getElementById('currentNumber').textContent = currentNum;
-        document.getElementById('stepCount').textContent = stepCount;
-        document.getElementById('progressBar').style.width = (stepCount / totalSteps * 100) + '%';
-        
-        feedback.textContent = '✓ Correct!';
-        feedback.className = 'mt-4 text-center text-lg font-semibold h-8 text-green-400';
-        
-        updateSequenceHistory();
-        input.value = '';
-        
-        // Check if reached 1
-        if (currentNum === 1) {
-            clearInterval(timerInterval);
-            setTimeout(() => {
-                showResult(true);
-            }, 500);
-            return;
-        }
-        
-        input.focus();
-    }
-
-    function showResult(success, wrongAnswer, correctAnswer) {
-        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        
-        document.getElementById('gameScreen').classList.add('hidden');
-        document.getElementById('resultScreen').classList.remove('hidden');
-        
-        document.getElementById('finalSteps').textContent = stepCount;
-        document.getElementById('finalTime').textContent = elapsed + 's';
-        
-        if (success) {
-            document.getElementById('resultEmoji').textContent = '🎉';
-            document.getElementById('resultTitle').textContent = 'Perfect!';
-            document.getElementById('failureReason').innerHTML = 
-                `<p class="text-green-400 font-semibold">You completed the sequence with no mistakes!</p>`;
-        } else {
-            document.getElementById('resultEmoji').textContent = '💥';
-            document.getElementById('resultTitle').textContent = 'Game Over!';
-            document.getElementById('failureReason').innerHTML = 
-                `<div class="mt-4 p-4 bg-red-500/20 rounded-lg border border-red-500/50">
-                    <p class="text-red-400 font-semibold mb-2">Wrong Answer!</p>
-                    <p class="text-gray-300 text-sm">You entered <span class="text-red-400 font-bold">${wrongAnswer}</span></p>
-                    <p class="text-gray-300 text-sm">Correct answer was <span class="text-green-400 font-bold">${correctAnswer}</span></p>
-                </div>`;
-        }
-    }
-
-    // Allow Enter key to submit
-    document.addEventListener('DOMContentLoaded', () => {
-        document.getElementById('answerInput').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') submitAnswer();
-        });
-    });
-</script>
-```
+<script src="index.js"></script>
 
 </body>
 </html>
