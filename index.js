@@ -237,7 +237,9 @@ async function displayUserRating(uid) {
         const ratingDisplay = document.createElement('p');
         ratingDisplay.id = 'ratingDisplay';
         ratingDisplay.className = 'text-lg font-bold text-blue-400 mt-2';
-        ratingDisplay.textContent = `Rating: ${data.rating.toFixed(2)} (${data.games} games)`;
+        const gamesText = data.games === 1 ? 'game' : 'games';
+        const provisional = data.rd > 110 ? '?' : '';
+        ratingDisplay.textContent = `Rating: ${data.rating.toFixed(2)}${provisional} (${data.games} ${gamesText})`;
         
         const existing = document.getElementById('ratingDisplay');
         if (existing) existing.remove();
@@ -562,15 +564,44 @@ async function startGame(){
     sequence = [currentNum];
     duelLobby.classList.add('hidden');
     gameScreen.classList.remove('hidden');
-    $('currentNumber').textContent = currentNum;
-    $('stepCount').textContent = stepCount;
-    $('answerInput').value = '';
-    $('answerInput').disabled = false;
-    $('feedback').textContent = '';
+    
+    // Show countdown
+    const countdown = $('currentNumber');
+    const stepDisplay = $('stepCount');
+    const answerInput = $('answerInput');
+    const submitBtn = $('submitBtn');
+    const feedback = $('feedback');
+    
+    // Disable input during countdown
+    answerInput.disabled = true;
+    submitBtn.disabled = true;
+    feedback.textContent = '';
+    stepDisplay.textContent = '0';
+    
+    // 3 second countdown
+    for(let i = 3; i > 0; i--) {
+        countdown.textContent = i;
+        countdown.className = 'text-6xl font-bold text-yellow-400 animate-pulse';
+        await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
+    // Show "GO!"
+    countdown.textContent = 'GO!';
+    countdown.className = 'text-6xl font-bold text-green-400';
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Start the actual game
+    countdown.className = 'text-3xl font-bold text-yellow-400';
+    countdown.textContent = currentNum;
+    stepDisplay.textContent = stepCount;
+    answerInput.value = '';
+    answerInput.disabled = false;
+    submitBtn.disabled = false;
+    
     startTime = Date.now();
     clearInterval(timerInterval);
     timerInterval = setInterval(updateTimer, 100);
-    setTimeout(()=> $('answerInput').focus(), 120);
+    setTimeout(()=> answerInput.focus(), 100);
 }
 
 // -------------------------
