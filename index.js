@@ -859,7 +859,7 @@ function updateTimer(){
 // Submit Answer
 // -------------------------
 $('submitBtn').addEventListener('click', submitAnswer);
-$('answerInput').addEventListener('keypress', e => { if(e.key === 'Enter') submitAnswer(); $('answerInput').textContent = '';});
+$('answerInput').addEventListener('keypress', e => { if(e.key === 'Enter') submitAnswer();});
 
 async function submitAnswer(){
     if(!duelID){ $('feedback').textContent = 'No duel active.'; return; }
