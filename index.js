@@ -169,6 +169,7 @@ let ratingUpdated = false;
 let preGameRating = null; // Store rating before game starts
 let createCooldown = false; // Track if create button is on cooldown
 let cooldownTimer = null; // Store cooldown interval
+let gameFinishedNormally = false; // Track if game ended normally vs disconnect
 
 // -------------------------
 // DOM refs
@@ -509,28 +510,40 @@ function listenDuel(){
     onValue(duelRef, snapshot => {
         const data = snapshot.val();
         
-        // If duel was deleted (creator disconnected), return to lobby
+        // If duel was deleted
         if(!data) {
-            if(gameStarted) {
-                // Game was in progress, just clean up
+            // Case 1: Pending duel - creator left before game started
+            if(!gameStarted && duelID) {
+                alert('The duel was cancelled because the creator left.');
+                $('duelStatus').textContent = '';
+                duelID = null;
+                duelRef = null;
+                return;
+            }
+            
+            // Case 2: Active game - someone disconnected during game
+            if(gameStarted && !gameFinishedNormally) {
+                // Don't show alert, game will handle forfeit through the disconnect mechanism
                 gameScreen.classList.add('hidden');
                 duelLobby.classList.remove('hidden');
                 clearInterval(timerInterval);
                 $('duelStatus').textContent = '';
-            } else if(duelID) {
-                // Was waiting in lobby, show message
-                alert('The duel was cancelled because the creator left.');
-                $('duelStatus').textContent = '';
+                duelID = null;
+                duelRef = null;
+                gameStarted = false;
+                return;
             }
+            
+            // Case 3: Game finished normally, duel deleted by return to lobby button
+            // No alert needed, just cleanup
             duelID = null;
             duelRef = null;
-            gameStarted = false;
-            ratingUpdated = false;
             return;
         }
 
         if(data.status === 'active' && !gameStarted){
             gameStarted = true;
+            gameFinishedNormally = false;
             startNumber = data.startNumber;
             clearCreateCooldown(); // Clear cooldown when duel starts
             
@@ -560,6 +573,7 @@ function listenDuel(){
             if(!ratingUpdated) {
                 updateRatings(data);
                 ratingUpdated = true;
+                gameFinishedNormally = true; // Mark that game finished normally
             }
             const winner = determineWinner(data);
             showResult(winner, data);
@@ -834,8 +848,6 @@ async function showResult(winner, duelData){
 $('returnLobbyBtn').addEventListener('click', async () => {
     resultScreen.classList.add('hidden');
     duelLobby.classList.remove('hidden');
-    gameStarted = false;
-    ratingUpdated = false;
     
     // Clear the join code input
     $('duelIDInput').value = '';
@@ -854,6 +866,10 @@ $('returnLobbyBtn').addEventListener('click', async () => {
         duelRef = null;
         duelID = null;
     }
+    
+    // Reset game state
+    gameStarted = false;
+    ratingUpdated = false;
 });
 
 // -------------------------
