@@ -1,4 +1,4 @@
-// index.js (module) - Collatz Duel with Firebase Auth + RTDB
+// index.js (module) - Collatz Duel with Firebase Auth + RTDB + Glicko-2
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js";
 import { getDatabase, ref, set, push, onValue, update, get } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-database.js";
@@ -23,6 +23,136 @@ const provider = new GoogleAuthProvider();
 const db = getDatabase(app);
 
 // -------------------------
+// Glicko-2 Constants
+// -------------------------
+const TAU = 0.5; // System constant (volatility change)
+const EPSILON = 0.000001; // Convergence tolerance
+
+// -------------------------
+// Glicko-2 Rating System
+// -------------------------
+class Glicko2 {
+    constructor(rating = 1500, rd = 350, vol = 0.06) {
+        this.rating = rating;
+        this.rd = rd;
+        this.vol = vol;
+    }
+
+    // Convert rating to Glicko-2 scale
+    toGlicko2(r) {
+        return (r - 1500) / 173.7178;
+    }
+
+    // Convert back to normal scale
+    fromGlicko2(mu) {
+        return mu * 173.7178 + 1500;
+    }
+
+    // Convert RD to Glicko-2 scale
+    rdToGlicko2(rd) {
+        return rd / 173.7178;
+    }
+
+    // Convert RD back to normal scale
+    rdFromGlicko2(phi) {
+        return phi * 173.7178;
+    }
+
+    // g function
+    g(phi) {
+        return 1 / Math.sqrt(1 + 3 * phi * phi / (Math.PI * Math.PI));
+    }
+
+    // E function (expected score)
+    E(mu, muJ, phiJ) {
+        return 1 / (1 + Math.exp(-this.g(phiJ) * (mu - muJ)));
+    }
+
+    // Update rating after a game
+    update(opponentRating, opponentRD, score) {
+        // Convert to Glicko-2 scale
+        const mu = this.toGlicko2(this.rating);
+        const phi = this.rdToGlicko2(this.rd);
+        const muJ = this.toGlicko2(opponentRating);
+        const phiJ = this.rdToGlicko2(opponentRD);
+
+        // Step 3: Compute v
+        const gPhi = this.g(phiJ);
+        const e = this.E(mu, muJ, phiJ);
+        const v = 1 / (gPhi * gPhi * e * (1 - e));
+
+        // Step 4: Compute delta
+        const delta = v * gPhi * (score - e);
+
+        // Step 5: Determine new volatility (iterative)
+        const sigma = this.computeNewVolatility(phi, v, delta);
+
+        // Step 6: Update rating deviation to new pre-rating period value
+        const phiStar = Math.sqrt(phi * phi + sigma * sigma);
+
+        // Step 7: Update rating and RD
+        const phiPrime = 1 / Math.sqrt(1 / (phiStar * phiStar) + 1 / v);
+        const muPrime = mu + phiPrime * phiPrime * gPhi * (score - e);
+
+        // Convert back to normal scale
+        this.rating = this.fromGlicko2(muPrime);
+        this.rd = this.rdFromGlicko2(phiPrime);
+        this.vol = sigma;
+
+        return this;
+    }
+
+    // Illinois algorithm for volatility
+    computeNewVolatility(phi, v, delta) {
+        const sigma = this.vol;
+        const a = Math.log(sigma * sigma);
+        const deltaSq = delta * delta;
+        const phiSq = phi * phi;
+
+        const f = (x) => {
+            const eX = Math.exp(x);
+            const phiSqPlusV = phiSq + v + eX;
+            const term1 = eX * (deltaSq - phiSq - v - eX) / (2 * phiSqPlusV * phiSqPlusV);
+            const term2 = (x - a) / (TAU * TAU);
+            return term1 - term2;
+        };
+
+        let A = a;
+        let B;
+        if (deltaSq > phiSq + v) {
+            B = Math.log(deltaSq - phiSq - v);
+        } else {
+            let k = 1;
+            while (f(a - k * TAU) < 0) {
+                k++;
+            }
+            B = a - k * TAU;
+        }
+
+        let fA = f(A);
+        let fB = f(B);
+
+        // Illinois algorithm
+        while (Math.abs(B - A) > EPSILON) {
+            const C = A + (A - B) * fA / (fB - fA);
+            const fC = f(C);
+
+            if (fC * fB < 0) {
+                A = B;
+                fA = fB;
+            } else {
+                fA = fA / 2;
+            }
+
+            B = C;
+            fB = fC;
+        }
+
+        return Math.exp(A / 2);
+    }
+}
+
+// -------------------------
 // Game & duel state
 // -------------------------
 let currentUser = null;
@@ -33,7 +163,8 @@ let opponentData = { currentNumber: null, steps: 0 };
 let timerInterval = null, startTime = 0;
 let sequence = [];
 let duelRef = null;
-let gameStarted = false; // Track if game has started locally
+let gameStarted = false;
+let ratingUpdated = false; // Track if ratings have been updated
 
 // -------------------------
 // DOM refs
@@ -52,6 +183,10 @@ onAuthStateChanged(auth, (user) => {
     if (user) {
         loginScreen.classList.add('hidden');
         duelLobby.classList.remove('hidden');
+        // Initialize user rating if doesn't exist
+        initializeUserRating(user.uid);
+        // Display user rating
+        displayUserRating(user.uid);
         $('userInfo').textContent = `Signed in as: ${user.displayName || 'Anonymous'}`;
         $('userInfo').classList.remove('hidden');
     } else {
@@ -60,6 +195,42 @@ onAuthStateChanged(auth, (user) => {
         $('userInfo').classList.add('hidden');
     }
 });
+
+// -------------------------
+// Initialize user rating
+// -------------------------
+async function initializeUserRating(uid) {
+    const userRef = ref(db, `users/${uid}/rating`);
+    const snap = await get(userRef);
+    if (!snap.exists()) {
+        await set(userRef, {
+            rating: 1500,
+            rd: 350,
+            vol: 0.06,
+            games: 0
+        });
+    }
+}
+
+// -------------------------
+// Display user rating
+// -------------------------
+async function displayUserRating(uid) {
+    const userRef = ref(db, `users/${uid}/rating`);
+    const snap = await get(userRef);
+    if (snap.exists()) {
+        const data = snap.val();
+        const ratingDisplay = document.createElement('p');
+        ratingDisplay.id = 'ratingDisplay';
+        ratingDisplay.className = 'text-lg font-bold text-blue-400 mt-2';
+        ratingDisplay.textContent = `Rating: ${Math.round(data.rating)} (${data.games} games)`;
+        
+        const existing = document.getElementById('ratingDisplay');
+        if (existing) existing.remove();
+        
+        $('userInfo').parentElement.appendChild(ratingDisplay);
+    }
+}
 
 // -------------------------
 // Login/Logout wiring
@@ -76,11 +247,11 @@ $('loginBtn').addEventListener('click', async () => {
 $('logoutBtn').addEventListener('click', async () => {
     try {
         await signOut(auth);
-        // reset UI state if needed
         duelID = null;
         duelRef = null;
         startNumber = null;
         gameStarted = false;
+        ratingUpdated = false;
         $('duelStatus').textContent = '';
     } catch (err) {
         console.error("Sign-out error:", err);
@@ -95,7 +266,7 @@ function collatzStep(n){ return n % 2 === 0 ? n / 2 : 3 * n + 1; }
 function getTotalSteps(n){ let t = n, c = 0; while(t !== 1){ t = collatzStep(t); c++; } return c; }
 function generateStartingNumber(){
     while(true){
-        const n = Math.floor(Math.random() * 100) + 10; // 10..109
+        const n = Math.floor(Math.random() * 100) + 10;
         const s = getTotalSteps(n);
         if(s >= 5 && s <= 20) return n;
     }
@@ -126,7 +297,8 @@ $('createDuelBtn').addEventListener('click', async () => {
     try {
         await set(duelRef, payload);
         $('duelStatus').textContent = `Duel created! ID: ${duelID}. Waiting for opponent...`;
-        gameStarted = false; // Reset game started flag
+        gameStarted = false;
+        ratingUpdated = false;
         listenDuel();
     } catch (err) {
         console.error("Error creating duel:", err);
@@ -160,9 +332,10 @@ $('joinDuelBtn').addEventListener('click', async () => {
             const statusRef = ref(db, `duels/${duelID}/status`);
             await set(statusRef, 'active');
             $('duelStatus').textContent = `Joined duel ${duelID}. Game starting!`;
-            gameStarted = false; // Reset game started flag
+            gameStarted = false;
+            ratingUpdated = false;
             listenDuel();
-            startGame(); // start locally for the joining player
+            startGame();
         } else if(data.status === 'active'){
             alert("Duel already in progress!");
         } else {
@@ -183,19 +356,16 @@ function listenDuel(){
         const data = snapshot.val();
         if(!data) return;
 
-        // Check if status changed to 'active' and game hasn't started yet
         if(data.status === 'active' && !gameStarted){
             gameStarted = true;
             startNumber = data.startNumber;
             startGame();
         }
 
-        // determine which player is opponent
         let opponentKey = 'player2';
         if(data.player1 && data.player1.uid === (currentUser && currentUser.uid)) opponentKey = 'player2';
         else opponentKey = 'player1';
 
-        // if opponent exists, update their display
         if(data[opponentKey]){
             opponentData.currentNumber = data[opponentKey].currentNumber;
             opponentData.steps = data[opponentKey].steps;
@@ -203,8 +373,11 @@ function listenDuel(){
             $('opponentStepCount').textContent = opponentData.steps;
         }
 
-        // if both finished -> show result
-        if(data.player1 && data.player2 && data.player1.finished && data.player2.finished){
+        if(data.player1 && data.player2 && (data.player1.finished || data.player2.finished)){
+            if(!ratingUpdated) {
+                updateRatings(data);
+                ratingUpdated = true;
+            }
             const winner = determineWinner(data);
             showResult(winner, data);
         }
@@ -212,8 +385,65 @@ function listenDuel(){
 }
 
 // -------------------------
+// Update ratings using Glicko-2
+// -------------------------
+async function updateRatings(duelData) {
+    const p1 = duelData.player1;
+    const p2 = duelData.player2;
+    if(!p1 || !p2) return;
+
+    // Fetch both players' ratings
+    const p1RatingSnap = await get(ref(db, `users/${p1.uid}/rating`));
+    const p2RatingSnap = await get(ref(db, `users/${p2.uid}/rating`));
+
+    const p1Data = p1RatingSnap.val() || { rating: 1500, rd: 350, vol: 0.06, games: 0 };
+    const p2Data = p2RatingSnap.val() || { rating: 1500, rd: 350, vol: 0.06, games: 0 };
+
+    // Create Glicko-2 objects
+    const p1Glicko = new Glicko2(p1Data.rating, p1Data.rd, p1Data.vol);
+    const p2Glicko = new Glicko2(p2Data.rating, p2Data.rd, p2Data.vol);
+
+    // Determine outcome (1 = win, 0 = loss, 0.5 = draw)
+    let p1Score = 0.5;
+    let p2Score = 0.5;
+
+    const winner = determineWinner(duelData);
+    if(winner === p1.displayName) {
+        p1Score = 1;
+        p2Score = 0;
+    } else if(winner === p2.displayName) {
+        p1Score = 0;
+        p2Score = 1;
+    }
+
+    // Update ratings
+    p1Glicko.update(p2Data.rating, p2Data.rd, p1Score);
+    p2Glicko.update(p1Data.rating, p1Data.rd, p2Score);
+
+    // Save back to Firebase
+    await set(ref(db, `users/${p1.uid}/rating`), {
+        rating: p1Glicko.rating,
+        rd: p1Glicko.rd,
+        vol: p1Glicko.vol,
+        games: p1Data.games + 1
+    });
+
+    await set(ref(db, `users/${p2.uid}/rating`), {
+        rating: p2Glicko.rating,
+        rd: p2Glicko.rd,
+        vol: p2Glicko.vol,
+        games: p2Data.games + 1
+    });
+
+    // Update display
+    if(currentUser) {
+        displayUserRating(currentUser.uid);
+    }
+}
+
+// -------------------------
 // Start Game (local)
- // -------------------------
+// -------------------------
 function startGame(){
     currentNum = startNumber;
     stepCount = 0;
@@ -253,7 +483,6 @@ async function submitAnswer(){
     const feedback = $('feedback');
     if(isNaN(answer)){ feedback.textContent = '⚠️ Enter a number!'; feedback.className='text-yellow-400'; return; }
 
-    // resolve player key
     const playerKey = await getPlayerKey();
     if(!playerKey){ alert("Couldn't resolve player key."); return; }
 
@@ -262,19 +491,16 @@ async function submitAnswer(){
         $('answerInput').disabled = true;
         feedback.textContent = `✗ WRONG! (${currentNum} → ${correct})`;
         feedback.className='text-red-400';
-        // mark finished in DB
         await update(ref(db, `duels/${duelID}/${playerKey}`), { finished: true });
         return;
     }
 
-    // correct
     currentNum = answer;
     stepCount++;
     sequence.push(currentNum);
     $('currentNumber').textContent = currentNum;
     $('stepCount').textContent = stepCount;
 
-    // update RTDB
     await update(ref(db, `duels/${duelID}/${playerKey}`), {
         currentNumber: currentNum,
         steps: stepCount
@@ -297,14 +523,20 @@ function determineWinner(duelData){
     const p2 = duelData.player2;
     if(!p1 || !p2) return null;
 
-    // If both finished (or reached 1), lower steps wins. If tied, p1 wins by <= as original logic.
-    if((p1.currentNumber === 1 || p1.finished) && (p2.currentNumber === 1 || p2.finished)){
+    if(p1.currentNumber === 1 && p2.currentNumber !== 1) return p1.displayName;
+    if(p2.currentNumber === 1 && p1.currentNumber !== 1) return p2.displayName;
+    
+    if(p1.currentNumber === 1 && p2.currentNumber === 1){
         return (p1.steps <= p2.steps) ? p1.displayName : p2.displayName;
-    } else if(p1.currentNumber === 1 || p1.finished){
-        return p1.displayName;
-    } else if(p2.currentNumber === 1 || p2.finished){
-        return p2.displayName;
     }
+    
+    if(p1.finished && !p2.finished) return p2.displayName;
+    if(p2.finished && !p1.finished) return p1.displayName;
+    
+    if(p1.finished && p2.finished){
+        return (p1.steps >= p2.steps) ? p1.displayName : p2.displayName;
+    }
+    
     return null;
 }
 
@@ -326,8 +558,8 @@ function showResult(winner, duelData){
 $('returnLobbyBtn').addEventListener('click', () => {
     resultScreen.classList.add('hidden');
     duelLobby.classList.remove('hidden');
-    gameStarted = false; // Reset for next game
-    // optional: cleanup duel record (if you want)
+    gameStarted = false;
+    ratingUpdated = false;
 });
 
 // -------------------------
