@@ -573,9 +573,10 @@ function listenDuel(){
         if(data.player1 && data.player2 && (data.player1.finished || data.player2.finished)){
             if(!ratingUpdated) {
                 console.log("Both players present, at least one finished. Updating ratings...");
-                await updateRatings(data);
-                ratingUpdated = true;
-                gameFinishedNormally = true; // Mark that game finished normally
+                updateRatings(data).then(() => {
+                    ratingUpdated = true;
+                    gameFinishedNormally = true;
+                });
             }
             const winner = determineWinner(data);
             showResult(winner, data);
