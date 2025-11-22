@@ -164,7 +164,8 @@ let timerInterval = null, startTime = 0;
 let sequence = [];
 let duelRef = null;
 let gameStarted = false;
-let ratingUpdated = false; // Track if ratings have been updated
+let ratingUpdated = false;
+let preGameRating = null; // Store rating before game starts
 
 // -------------------------
 // DOM refs
@@ -260,6 +261,18 @@ $('logoutBtn').addEventListener('click', async () => {
 });
 
 // -------------------------
+// Generate short code for duels
+// -------------------------
+function generateShortCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Removed confusing chars like 0, O, I, 1
+    let code = '';
+    for(let i = 0; i < 6; i++) {
+        code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
+}
+
+// -------------------------
 // Collatz helpers
 // -------------------------
 function collatzStep(n){ return n % 2 === 0 ? n / 2 : 3 * n + 1; }
@@ -278,9 +291,9 @@ function generateStartingNumber(){
 $('createDuelBtn').addEventListener('click', async () => {
     if(!currentUser){ alert("Please sign in first."); return; }
     startNumber = generateStartingNumber();
-    const duelsRef = ref(db, 'duels');
-    duelRef = push(duelsRef);
-    duelID = duelRef.key;
+    // Generate short 6-character code
+    duelID = generateShortCode();
+    duelRef = ref(db, `duels/${duelID}`);
 
     const payload = {
         startNumber,
@@ -308,7 +321,7 @@ $('createDuelBtn').addEventListener('click', async () => {
 
 $('joinDuelBtn').addEventListener('click', async () => {
     if(!currentUser){ alert("Please sign in first."); return; }
-    const inputID = $('duelIDInput').value.trim();
+    const inputID = $('duelIDInput').value.trim().toUpperCase(); // Convert to uppercase
     if(!inputID){ alert("Enter a duel ID"); return; }
 
     duelID = inputID;
@@ -444,7 +457,15 @@ async function updateRatings(duelData) {
 // -------------------------
 // Start Game (local)
 // -------------------------
-function startGame(){
+async function startGame(){
+    // Store pre-game rating
+    if(currentUser) {
+        const userRatingSnap = await get(ref(db, `users/${currentUser.uid}/rating`));
+        if(userRatingSnap.exists()) {
+            preGameRating = userRatingSnap.val().rating;
+        }
+    }
+    
     currentNum = startNumber;
     stepCount = 0;
     sequence = [currentNum];
@@ -543,13 +564,38 @@ function determineWinner(duelData){
 // -------------------------
 // Show result
 // -------------------------
-function showResult(winner, duelData){
+async function showResult(winner, duelData){
     gameScreen.classList.add('hidden');
     resultScreen.classList.remove('hidden');
     $('resultTitle').textContent = winner ? `Winner: ${winner}` : 'Draw!';
     $('resultEmoji').textContent = winner ? '🏆' : '🤝';
     $('finalSteps').textContent = stepCount;
     $('finalTime').textContent = ((Date.now() - startTime) / 1000).toFixed(1) + 's';
+    
+    // Show rating changes
+    if(currentUser) {
+        const userRatingSnap = await get(ref(db, `users/${currentUser.uid}/rating`));
+        if(userRatingSnap.exists()) {
+            const newRating = userRatingSnap.val();
+            const ratingChange = document.createElement('div');
+            ratingChange.className = 'mt-4 text-lg';
+            
+            // Get old rating from before the game (stored value)
+            const oldRating = Math.round(newRating.rating);
+            
+            ratingChange.innerHTML = `
+                <p class="text-blue-400 font-bold">Your New Rating: ${Math.round(newRating.rating)}</p>
+                <p class="text-gray-400 text-sm">${newRating.games} games played</p>
+            `;
+            
+            // Remove existing rating display if present
+            const existingRating = resultScreen.querySelector('.rating-display');
+            if(existingRating) existingRating.remove();
+            
+            ratingChange.classList.add('rating-display');
+            resultScreen.querySelector('.bg-white\\/5').appendChild(ratingChange);
+        }
+    }
 }
 
 // -------------------------
