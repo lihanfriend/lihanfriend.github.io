@@ -179,6 +179,15 @@ const duelLobby = $('duelLobby');
 const gameScreen = $('gameScreen');
 const resultScreen = $('resultScreen');
 
+// Setup input filtering for duel code
+const duelInput = $('duelIDInput');
+duelInput.addEventListener('input', (e) => {
+    // Auto-capitalize and filter to only letters and numbers
+    let value = e.target.value.toUpperCase();
+    value = value.replace(/[^A-Z0-9]/g, '');
+    e.target.value = value;
+});
+
 // -------------------------
 // Auth listener
 // -------------------------
@@ -688,6 +697,9 @@ $('returnLobbyBtn').addEventListener('click', async () => {
     duelLobby.classList.remove('hidden');
     gameStarted = false;
     ratingUpdated = false;
+    
+    // Clear the join code input
+    $('duelIDInput').value = '';
     
     // Delete the duel from database
     if(duelRef) {
