@@ -1,4 +1,4 @@
-// Collatz Racing - Complete Implementation with Firebase Auth + RTDB + Glicko-2
+// Collatz Racing - Complete Implementation
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js";
 import { getDatabase, ref, set, get, update, remove, onValue, onDisconnect } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-database.js";
@@ -36,21 +36,14 @@ class Glicko2 {
     fromGlicko2(mu) { return mu * GLICKO2_SCALE + 1500; }
     rdToGlicko2(rd) { return rd / GLICKO2_SCALE; }
     rdFromGlicko2(phi) { return phi * GLICKO2_SCALE; }
-
-    g(phi) {
-        return 1 / Math.sqrt(1 + 3 * phi * phi / (Math.PI * Math.PI));
-    }
-
-    E(mu, muJ, phiJ) {
-        return 1 / (1 + Math.exp(-this.g(phiJ) * (mu - muJ)));
-    }
+    g(phi) { return 1 / Math.sqrt(1 + 3 * phi * phi / (Math.PI * Math.PI)); }
+    E(mu, muJ, phiJ) { return 1 / (1 + Math.exp(-this.g(phiJ) * (mu - muJ))); }
 
     update(opponentRating, opponentRD, score) {
         const mu = this.toGlicko2(this.rating);
         const phi = this.rdToGlicko2(this.rd);
         const muJ = this.toGlicko2(opponentRating);
         const phiJ = this.rdToGlicko2(opponentRD);
-
         const gPhi = this.g(phiJ);
         const e = this.E(mu, muJ, phiJ);
         const v = 1 / (gPhi * gPhi * e * (1 - e));
@@ -59,7 +52,6 @@ class Glicko2 {
         const phiStar = Math.sqrt(phi * phi + sigma * sigma);
         const phiPrime = 1 / Math.sqrt(1 / (phiStar * phiStar) + 1 / v);
         const muPrime = mu + phiPrime * phiPrime * gPhi * (score - e);
-
         this.rating = this.fromGlicko2(muPrime);
         this.rd = this.rdFromGlicko2(phiPrime);
         this.vol = sigma;
@@ -71,7 +63,6 @@ class Glicko2 {
         const a = Math.log(sigma * sigma);
         const deltaSq = delta * delta;
         const phiSq = phi * phi;
-
         const f = (x) => {
             const eX = Math.exp(x);
             const phiSqPlusV = phiSq + v + eX;
@@ -79,35 +70,28 @@ class Glicko2 {
             const term2 = (x - a) / (TAU * TAU);
             return term1 - term2;
         };
-
         let A = a;
         let B = deltaSq > phiSq + v ? Math.log(deltaSq - phiSq - v) : a - TAU;
-        
         while (f(B) < 0) B -= TAU;
-
         let fA = f(A);
         let fB = f(B);
-
         while (Math.abs(B - A) > EPSILON) {
             const C = A + (A - B) * fA / (fB - fA);
             const fC = f(C);
-
             if (fC * fB <= 0) {
                 A = B;
                 fA = fB;
             } else {
                 fA = fA / 2;
             }
-
             B = C;
             fB = fC;
         }
-
         return Math.exp(A / 2);
     }
 }
 
-// ==================== GAME STATE ====================
+// ==================== STATE ====================
 let currentUser = null;
 let duelID = null;
 let duelRef = null;
@@ -125,28 +109,16 @@ let createCooldown = false;
 let cooldownInterval = null;
 let isRatedGame = true;
 
-// ==================== DOM ELEMENTS ====================
+// ==================== DOM ====================
 const $ = id => document.getElementById(id);
-const loginScreen = $('loginScreen');
-const lobbyScreen = $('lobbyScreen');
-const gameScreen = $('gameScreen');
-const resultScreen = $('resultScreen');
 
-// ==================== COLLATZ FUNCTIONS ====================
-function collatzStep(n) {
-    return n % 2 === 0 ? n / 2 : 3 * n + 1;
-}
-
+// ==================== COLLATZ ====================
+function collatzStep(n) { return n % 2 === 0 ? n / 2 : 3 * n + 1; }
 function getTotalSteps(n) {
-    let temp = n;
-    let count = 0;
-    while (temp !== 1) {
-        temp = collatzStep(temp);
-        count++;
-    }
+    let temp = n, count = 0;
+    while (temp !== 1) { temp = collatzStep(temp); count++; }
     return count;
 }
-
 function generateStartingNumber() {
     while (true) {
         const n = Math.floor(Math.random() * 100) + 10;
@@ -154,59 +126,58 @@ function generateStartingNumber() {
         if (steps >= 5 && steps <= 20) return n;
     }
 }
-
 async function generateShortCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let attempts = 0;
-    
-    while (attempts < 10) {
-        let code = '';
-        for (let i = 0; i < 6; i++) {
-            code += chars[Math.floor(Math.random() * chars.length)];
-        }
-        
+    for (let attempts = 0; attempts < 10; attempts++) {
+        let code = Array(6).fill(0).map(() => chars[Math.floor(Math.random() * chars.length)]).join('');
         const exists = await get(ref(db, `duels/${code}`));
         if (!exists.exists()) return code;
-        attempts++;
     }
-    
-    return Array(6).fill(0).map(() => chars[Math.floor(Math.random() * chars.length)]).join('') + chars[0];
+    return Array(7).fill(0).map(() => chars[Math.floor(Math.random() * chars.length)]).join('');
 }
 
 // ==================== AUTH ====================
 onAuthStateChanged(auth, async (user) => {
     currentUser = user;
     if (user) {
-        loginScreen.classList.add('hidden');
-        lobbyScreen.classList.remove('hidden');
+        $('loginScreen').classList.add('hidden');
+        $('lobbyScreen').classList.remove('hidden');
         await initializeUserRating(user.uid);
         await displayUserRating(user.uid);
         $('userInfoDisplay').textContent = `Signed in as: ${user.displayName || 'Anonymous'}`;
     } else {
-        loginScreen.classList.remove('hidden');
-        lobbyScreen.classList.add('hidden');
-        gameScreen.classList.add('hidden');
-        resultScreen.classList.add('hidden');
+        $('loginScreen').classList.remove('hidden');
+        $('lobbyScreen').classList.add('hidden');
+        $('gameScreen').classList.add('hidden');
+        $('resultScreen').classList.add('hidden');
     }
 });
 
-$('loginBtn').addEventListener('click', async () => {
+$('loginBtn').onclick = async () => {
     try {
-        await signInWithPopup(auth, provider);
+        console.log('Login button clicked');
+        const result = await signInWithPopup(auth, provider);
+        console.log('Sign in successful:', result.user);
     } catch (err) {
         console.error("Sign-in error:", err);
-        alert("Sign-in failed. Please try again.");
+        alert(`Sign-in failed: ${err.message}`);
     }
-});
+};
 
-$('logoutBtn').addEventListener('click', async () => {
+$('logoutBtn').onclick = async () => {
     try {
         await signOut(auth);
-        resetGameState();
+        duelID = null;
+        duelRef = null;
+        gameStarted = false;
+        ratingUpdated = false;
+        gameFinishedNormally = false;
+        clearCreateCooldown();
+        $('lobbyStatus').textContent = '';
     } catch (err) {
         console.error("Sign-out error:", err);
     }
-});
+};
 
 // ==================== USER RATING ====================
 async function initializeUserRating(uid) {
@@ -214,10 +185,7 @@ async function initializeUserRating(uid) {
     const snap = await get(userRef);
     if (!snap.exists()) {
         await set(userRef, {
-            rating: 1500,
-            rd: 350,
-            vol: 0.06,
-            games: 0,
+            rating: 1500, rd: 350, vol: 0.06, games: 0,
             email: currentUser.email || 'no-email@example.com',
             displayName: currentUser.displayName || 'Anonymous'
         });
@@ -230,221 +198,134 @@ async function initializeUserRating(uid) {
 }
 
 async function displayUserRating(uid) {
-    const userRef = ref(db, `users/${uid}/rating`);
-    const snap = await get(userRef);
+    const snap = await get(ref(db, `users/${uid}/rating`));
     if (snap.exists()) {
         const data = snap.val();
         const provisional = data.rd > 110 ? '?' : '';
         const gamesText = data.games === 1 ? 'game' : 'games';
-        $('ratingDisplay').innerHTML = `
-            <p class="text-lg font-bold text-blue-400">
-                Rating: ${Math.round(data.rating)}${provisional} (${data.games} ${gamesText})
-            </p>
-        `;
+        $('ratingDisplay').innerHTML = `<p class="text-lg font-bold text-blue-400">Rating: ${Math.round(data.rating)}${provisional} (${data.games} ${gamesText})</p>`;
     }
 }
 
 async function updatePlayerRating(duelData) {
     if (!currentUser || !isRatedGame) return;
-    
-    const p1 = duelData.player1;
-    const p2 = duelData.player2;
+    const p1 = duelData.player1, p2 = duelData.player2;
     if (!p1 || !p2) return;
-
     const isPlayer1 = p1.uid === currentUser.uid;
     const myData = isPlayer1 ? p1 : p2;
     const opponentData = isPlayer1 ? p2 : p1;
-
-    const myRatingSnap = await get(ref(db, `users/${myData.uid}/rating`));
-    const opponentRatingSnap = await get(ref(db, `users/${opponentData.uid}/rating`));
-
-    const myRatingData = myRatingSnap.val() || { rating: 1500, rd: 350, vol: 0.06, games: 0 };
-    const opponentRatingData = opponentRatingSnap.val() || { rating: 1500, rd: 350, vol: 0.06, games: 0 };
-
-    const myGlicko = new Glicko2(myRatingData.rating, myRatingData.rd, myRatingData.vol);
-
+    const mySnap = await get(ref(db, `users/${myData.uid}/rating`));
+    const oppSnap = await get(ref(db, `users/${opponentData.uid}/rating`));
+    const myRating = mySnap.val() || { rating: 1500, rd: 350, vol: 0.06, games: 0 };
+    const oppRating = oppSnap.val() || { rating: 1500, rd: 350, vol: 0.06, games: 0 };
+    const myGlicko = new Glicko2(myRating.rating, myRating.rd, myRating.vol);
     const winner = determineWinner(duelData);
     let myScore = 0.5;
     if (winner === myData.displayName) myScore = 1;
     else if (winner === opponentData.displayName) myScore = 0;
-
-    myGlicko.update(opponentRatingData.rating, opponentRatingData.rd, myScore);
-
+    myGlicko.update(oppRating.rating, oppRating.rd, myScore);
     await set(ref(db, `users/${myData.uid}/rating`), {
-        rating: myGlicko.rating,
-        rd: myGlicko.rd,
-        vol: myGlicko.vol,
-        games: myRatingData.games + 1,
-        email: myData.email || 'no-email@example.com',
-        displayName: myData.displayName
+        rating: myGlicko.rating, rd: myGlicko.rd, vol: myGlicko.vol, games: myRating.games + 1,
+        email: myData.email || 'no-email@example.com', displayName: myData.displayName
     });
-
     await displayUserRating(currentUser.uid);
 }
 
 // ==================== DUEL MANAGEMENT ====================
-$('duelCodeInput').addEventListener('input', (e) => {
+$('duelCodeInput').oninput = (e) => {
     e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-});
+};
 
-$('ratedToggle').addEventListener('change', (e) => {
+$('ratedToggle').onchange = (e) => {
     isRatedGame = e.target.checked;
-});
+};
 
-$('createDuelBtn').addEventListener('click', async () => {
-    if (!currentUser) {
-        alert("Please sign in first.");
-        return;
-    }
-    if (createCooldown) {
-        alert("Please wait before creating another duel.");
-        return;
-    }
-    
+$('createDuelBtn').onclick = async () => {
+    if (!currentUser) return alert("Please sign in first.");
+    if (createCooldown) return alert("Please wait before creating another duel.");
     startNumber = generateStartingNumber();
     duelID = await generateShortCode();
     duelRef = ref(db, `duels/${duelID}`);
-
     await set(duelRef, {
-        startNumber,
-        status: 'pending',
-        rated: isRatedGame,
-        player1: {
-            uid: currentUser.uid,
-            displayName: currentUser.displayName || 'Anonymous',
-            email: currentUser.email || 'no-email@example.com',
-            currentNumber: startNumber,
-            steps: 0,
-            finished: false
-        }
+        startNumber, status: 'pending', rated: isRatedGame,
+        player1: { uid: currentUser.uid, displayName: currentUser.displayName || 'Anonymous',
+            email: currentUser.email || 'no-email@example.com', currentNumber: startNumber, steps: 0, finished: false }
     });
-
     const statusSnap = await get(ref(db, `duels/${duelID}/status`));
-    if (statusSnap.exists() && statusSnap.val() === 'pending') {
-        onDisconnect(duelRef).remove();
-    }
-
+    if (statusSnap.exists() && statusSnap.val() === 'pending') onDisconnect(duelRef).remove();
     const gameMode = isRatedGame ? 'Rated' : 'Casual';
     $('lobbyStatus').textContent = `${gameMode} duel created! Code: ${duelID}. Waiting for opponent...`;
-    
     startCreateCooldown();
     listenToDuel();
-});
+};
 
-$('joinDuelBtn').addEventListener('click', async () => {
-    if (!currentUser) {
-        alert("Please sign in first.");
-        return;
-    }
-    
+$('joinDuelBtn').onclick = async () => {
+    if (!currentUser) return alert("Please sign in first.");
     const inputCode = $('duelCodeInput').value.trim().toUpperCase();
-    if (!inputCode) {
-        alert("Enter a duel code.");
-        return;
-    }
-
+    if (!inputCode) return alert("Enter a duel code.");
     duelID = inputCode;
     duelRef = ref(db, `duels/${duelID}`);
-
     const snap = await get(duelRef);
     const data = snap.exists() ? snap.val() : null;
-    
-    if (!data) {
-        alert("Duel not found!");
-        resetDuelState();
-        return;
-    }
-
-    if (data.player1 && data.player1.uid === currentUser.uid) {
-        alert("You can't race against yourself!");
-        resetDuelState();
-        return;
-    }
-
+    if (!data) { alert("Duel not found!"); duelID = null; duelRef = null; return; }
+    if (data.player1 && data.player1.uid === currentUser.uid) { alert("You can't race against yourself!"); duelID = null; duelRef = null; return; }
     if (!data.player2 && data.status === 'pending') {
         startNumber = data.startNumber;
         isRatedGame = data.rated !== undefined ? data.rated : true;
-        
         await set(ref(db, `duels/${duelID}/player2`), {
-            uid: currentUser.uid,
-            displayName: currentUser.displayName || 'Anonymous',
-            email: currentUser.email || 'no-email@example.com',
-            currentNumber: startNumber,
-            steps: 0,
-            finished: false
+            uid: currentUser.uid, displayName: currentUser.displayName || 'Anonymous',
+            email: currentUser.email || 'no-email@example.com', currentNumber: startNumber, steps: 0, finished: false
         });
-        
         await set(ref(db, `duels/${duelID}/status`), 'active');
-        
         const gameMode = isRatedGame ? 'Rated' : 'Casual';
         $('lobbyStatus').textContent = `Joined ${gameMode.toLowerCase()} duel ${duelID}. Starting...`;
-        
         listenToDuel();
     } else if (data.status === 'active') {
         alert("Duel already in progress!");
     } else {
         alert("Cannot join this duel.");
     }
-});
+};
 
 function listenToDuel() {
     if (!duelRef) return;
-    
     onValue(duelRef, async (snapshot) => {
         const data = snapshot.val();
-        
         if (!data) {
-            if (!gameStarted && duelID) {
-                alert('Duel was cancelled.');
-            } else if (gameStarted && !gameFinishedNormally) {
-                gameScreen.classList.add('hidden');
-                lobbyScreen.classList.remove('hidden');
+            if (!gameStarted && duelID) alert('Duel was cancelled.');
+            else if (gameStarted && !gameFinishedNormally) {
+                $('gameScreen').classList.add('hidden');
+                $('lobbyScreen').classList.remove('hidden');
                 clearInterval(timerInterval);
             }
-            resetDuelState();
-            return;
+            duelID = null; duelRef = null; return;
         }
-
-        if (data.rated !== undefined) {
-            isRatedGame = data.rated;
-        }
-
+        if (data.rated !== undefined) isRatedGame = data.rated;
         if (data.status === 'active' && !gameStarted) {
-            gameStarted = true;
-            gameFinishedNormally = false;
-            startNumber = data.startNumber;
+            gameStarted = true; gameFinishedNormally = false; startNumber = data.startNumber;
             clearCreateCooldown();
-            
             if (duelRef) onDisconnect(duelRef).cancel();
             setupDisconnectForfeit();
-            
             await startGame();
         }
-
         const opponentKey = (data.player1 && data.player1.uid === currentUser?.uid) ? 'player2' : 'player1';
         if (data[opponentKey]) {
             $('opponentNumber').textContent = data[opponentKey].currentNumber;
             $('opponentSteps').textContent = data[opponentKey].steps;
         }
-
-        const p1 = data.player1;
-        const p2 = data.player2;
-        
+        const p1 = data.player1, p2 = data.player2;
         if (p1 && p2 && (p1.disconnected || p2.disconnected || p1.forfeit || p2.forfeit)) {
             if (!ratingUpdated) {
                 if (isRatedGame) await updatePlayerRating(data);
-                ratingUpdated = true;
-                gameFinishedNormally = true;
+                ratingUpdated = true; gameFinishedNormally = true;
                 showResult(determineWinner(data), data);
             }
             return;
         }
-
         if (p1 && p2 && (p1.finished || p2.finished)) {
             if (!ratingUpdated) {
                 if (isRatedGame) await updatePlayerRating(data);
-                ratingUpdated = true;
-                gameFinishedNormally = true;
+                ratingUpdated = true; gameFinishedNormally = true;
                 showResult(determineWinner(data), data);
             }
         }
@@ -453,76 +334,48 @@ function listenToDuel() {
 
 async function setupDisconnectForfeit() {
     if (!duelRef || !currentUser) return;
-    
     const snap = await get(duelRef);
     const data = snap.val();
     if (!data) return;
-    
     const playerKey = (data.player1 && data.player1.uid === currentUser.uid) ? 'player1' : 'player2';
     const playerRef = ref(db, `duels/${duelID}/${playerKey}`);
-    
-    onDisconnect(playerRef).update({
-        finished: true,
-        disconnected: true,
-        forfeit: true
-    });
+    onDisconnect(playerRef).update({ finished: true, disconnected: true, forfeit: true });
 }
 
 function startCreateCooldown() {
     createCooldown = true;
     const btn = $('createDuelBtn');
     let timeLeft = 15;
-    
     btn.disabled = true;
     btn.classList.add('opacity-50', 'cursor-not-allowed');
-    const originalText = btn.textContent;
     btn.textContent = `Wait ${timeLeft}s`;
-    
     clearInterval(cooldownInterval);
     cooldownInterval = setInterval(() => {
         timeLeft--;
-        if (timeLeft > 0) {
-            btn.textContent = `Wait ${timeLeft}s`;
-        } else {
-            clearInterval(cooldownInterval);
-            createCooldown = false;
-            btn.disabled = false;
-            btn.classList.remove('opacity-50', 'cursor-not-allowed');
-            btn.textContent = originalText;
+        if (timeLeft > 0) btn.textContent = `Wait ${timeLeft}s`;
+        else {
+            clearInterval(cooldownInterval); createCooldown = false;
+            btn.disabled = false; btn.classList.remove('opacity-50', 'cursor-not-allowed');
+            btn.textContent = 'Create Duel';
         }
     }, 1000);
 }
 
 function clearCreateCooldown() {
-    if (cooldownInterval) {
-        clearInterval(cooldownInterval);
-        cooldownInterval = null;
-    }
+    if (cooldownInterval) { clearInterval(cooldownInterval); cooldownInterval = null; }
     createCooldown = false;
     const btn = $('createDuelBtn');
-    btn.disabled = false;
-    btn.classList.remove('opacity-50', 'cursor-not-allowed');
-    btn.textContent = 'Create Duel';
+    btn.disabled = false; btn.classList.remove('opacity-50', 'cursor-not-allowed'); btn.textContent = 'Create Duel';
 }
 
-// ==================== GAME LOGIC ====================
+// ==================== GAME ====================
 async function startGame() {
     if (currentUser && isRatedGame) {
         const snap = await get(ref(db, `users/${currentUser.uid}/rating`));
-        if (snap.exists()) {
-            preGameRating = snap.val().rating;
-        }
-    } else {
-        preGameRating = null;
-    }
-    
-    currentNumber = startNumber;
-    stepCount = 0;
-    sequence = [currentNumber];
-    
-    lobbyScreen.classList.add('hidden');
-    gameScreen.classList.remove('hidden');
-    
+        if (snap.exists()) preGameRating = snap.val().rating;
+    } else preGameRating = null;
+    currentNumber = startNumber; stepCount = 0; sequence = [currentNumber];
+    $('lobbyScreen').classList.add('hidden'); $('gameScreen').classList.remove('hidden');
     const badge = $('gameModeBadge');
     if (isRatedGame) {
         badge.textContent = '⭐ Rated Game';
@@ -531,184 +384,105 @@ async function startGame() {
         badge.textContent = '🎮 Casual Game';
         badge.className = 'inline-block px-4 py-2 rounded-full text-sm font-semibold bg-white/10 border border-white/20';
     }
-    
-    $('answerInput').disabled = true;
-    $('submitBtn').disabled = true;
-    $('feedback').textContent = '';
-    $('yourSteps').textContent = '0';
-    $('opponentNumber').textContent = startNumber;
-    $('opponentSteps').textContent = '0';
-    
+    $('answerInput').disabled = true; $('submitBtn').disabled = true; $('feedback').textContent = '';
+    $('yourSteps').textContent = '0'; $('opponentNumber').textContent = startNumber; $('opponentSteps').textContent = '0';
     for (let i = 3; i > 0; i--) {
-        $('yourNumber').textContent = i;
-        $('yourNumber').className = 'text-6xl font-bold text-yellow-400 animate-pulse';
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        $('yourNumber').textContent = i; $('yourNumber').className = 'text-6xl font-bold text-yellow-400 animate-pulse';
+        await new Promise(r => setTimeout(r, 1000));
     }
-    
-    $('yourNumber').textContent = 'GO!';
-    $('yourNumber').className = 'text-6xl font-bold text-green-400';
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
+    $('yourNumber').textContent = 'GO!'; $('yourNumber').className = 'text-6xl font-bold text-green-400';
+    await new Promise(r => setTimeout(r, 500));
     $('yourNumber').className = 'text-3xl font-bold text-yellow-400';
-    $('yourNumber').textContent = currentNumber;
-    $('yourSteps').textContent = stepCount;
-    $('opponentNumber').textContent = '?';
-    
-    $('answerInput').value = '';
-    $('answerInput').disabled = false;
-    $('submitBtn').disabled = false;
-    
-    startTime = Date.now();
-    clearInterval(timerInterval);
-    timerInterval = setInterval(() => {
-        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        $('gameTimer').textContent = elapsed + 's';
-    }, 100);
-    
-    updateSequenceLog();
-    setTimeout(() => $('answerInput').focus(), 100);
+    $('yourNumber').textContent = currentNumber; $('yourSteps').textContent = stepCount;
+    $('opponentNumber').textContent = '?'; $('answerInput').value = '';
+    $('answerInput').disabled = false; $('submitBtn').disabled = false;
+    startTime = Date.now(); clearInterval(timerInterval);
+    timerInterval = setInterval(() => { $('gameTimer').textContent = ((Date.now() - startTime) / 1000).toFixed(1) + 's'; }, 100);
+    updateSequenceLog(); setTimeout(() => $('answerInput').focus(), 100);
 }
 
 function updateSequenceLog() {
     const log = $('sequenceLog');
     if (!log) return;
-    
     log.innerHTML = '';
-    
     sequence.forEach((num, index) => {
         const span = document.createElement('span');
-        
-        if (num === 1) {
-            span.className = 'px-3 py-1 bg-green-500 rounded-lg text-white font-mono font-bold';
-        } else if (index === sequence.length - 1) {
-            span.className = 'px-3 py-1 bg-blue-500 rounded-lg text-white font-mono font-bold';
-        } else {
-            span.className = 'px-3 py-1 bg-white/20 rounded-lg text-white font-mono';
-        }
-        
-        span.textContent = num;
-        log.appendChild(span);
-        
+        if (num === 1) span.className = 'px-3 py-1 bg-green-500 rounded-lg text-white font-mono font-bold';
+        else if (index === sequence.length - 1) span.className = 'px-3 py-1 bg-blue-500 rounded-lg text-white font-mono font-bold';
+        else span.className = 'px-3 py-1 bg-white/20 rounded-lg text-white font-mono';
+        span.textContent = num; log.appendChild(span);
         if (index < sequence.length - 1) {
             const arrow = document.createElement('span');
-            arrow.className = 'text-gray-400';
-            arrow.textContent = '→';
-            log.appendChild(arrow);
+            arrow.className = 'text-gray-400'; arrow.textContent = '→'; log.appendChild(arrow);
         }
     });
 }
 
 async function submitAnswer() {
-    if (!duelID) {
-        $('feedback').textContent = 'No active duel.';
-        return;
-    }
-    
+    if (!duelID) { $('feedback').textContent = 'No active duel.'; return; }
     const input = $('answerInput');
     const answer = parseInt(input.value);
     const correct = collatzStep(currentNumber);
     const feedback = $('feedback');
-    
     if (isNaN(answer)) {
         feedback.textContent = '⚠️ Enter a number!';
         feedback.className = 'mt-4 text-center text-lg font-semibold min-h-[28px] text-yellow-400';
         return;
     }
-
     const snap = await get(duelRef);
     const data = snap.val();
     if (!data) return;
-    
     const playerKey = (data.player1 && data.player1.uid === currentUser.uid) ? 'player1' : 'player2';
-
     if (answer !== correct) {
-        clearInterval(timerInterval);
-        $('answerInput').disabled = true;
-        $('submitBtn').disabled = true;
+        clearInterval(timerInterval); $('answerInput').disabled = true; $('submitBtn').disabled = true;
         feedback.textContent = `✗ WRONG! (${currentNumber} → ${correct})`;
         feedback.className = 'mt-4 text-center text-lg font-semibold min-h-[28px] text-red-400';
         await update(ref(db, `duels/${duelID}/${playerKey}`), { finished: true });
         return;
     }
-
-    currentNumber = answer;
-    stepCount++;
-    sequence.push(currentNumber);
-    
-    $('yourNumber').textContent = currentNumber;
-    $('yourSteps').textContent = stepCount;
+    currentNumber = answer; stepCount++; sequence.push(currentNumber);
+    $('yourNumber').textContent = currentNumber; $('yourSteps').textContent = stepCount;
     updateSequenceLog();
-
-    await update(ref(db, `duels/${duelID}/${playerKey}`), {
-        currentNumber: currentNumber,
-        steps: stepCount
-    });
-
+    await update(ref(db, `duels/${duelID}/${playerKey}`), { currentNumber: currentNumber, steps: stepCount });
     feedback.textContent = '✓ Correct!';
     feedback.className = 'mt-4 text-center text-lg font-semibold min-h-[28px] text-green-400';
-    
-    input.value = '';
-    setTimeout(() => input.focus(), 50);
-
+    input.value = ''; setTimeout(() => input.focus(), 50);
     if (currentNumber === 1) {
-        clearInterval(timerInterval);
-        $('answerInput').disabled = true;
-        $('submitBtn').disabled = true;
+        clearInterval(timerInterval); $('answerInput').disabled = true; $('submitBtn').disabled = true;
         await update(ref(db, `duels/${duelID}/${playerKey}`), { finished: true });
     }
 }
 
-$('submitBtn').addEventListener('click', submitAnswer);
-$('answerInput').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') submitAnswer();
-});
+$('submitBtn').onclick = submitAnswer;
+$('answerInput').onkeypress = (e) => { if (e.key === 'Enter') submitAnswer(); };
 
 function determineWinner(duelData) {
-    const p1 = duelData.player1;
-    const p2 = duelData.player2;
+    const p1 = duelData.player1, p2 = duelData.player2;
     if (!p1 || !p2) return null;
-
     if (p1.disconnected || p1.forfeit) return p2.displayName;
     if (p2.disconnected || p2.forfeit) return p1.displayName;
-
     if (p1.currentNumber === 1 && p2.currentNumber !== 1) return p1.displayName;
     if (p2.currentNumber === 1 && p1.currentNumber !== 1) return p2.displayName;
-    
-    if (p1.currentNumber === 1 && p2.currentNumber === 1) {
-        return (p1.steps <= p2.steps) ? p1.displayName : p2.displayName;
-    }
-    
+    if (p1.currentNumber === 1 && p2.currentNumber === 1) return (p1.steps <= p2.steps) ? p1.displayName : p2.displayName;
     if (p1.finished && !p2.finished) return p2.displayName;
     if (p2.finished && !p1.finished) return p1.displayName;
-    
-    if (p1.finished && p2.finished) {
-        return (p1.steps >= p2.steps) ? p1.displayName : p2.displayName;
-    }
-    
+    if (p1.finished && p2.finished) return (p1.steps >= p2.steps) ? p1.displayName : p2.displayName;
     return null;
 }
 
 async function showResult(winner, duelData) {
-    gameScreen.classList.add('hidden');
-    resultScreen.classList.remove('hidden');
-    
-    const p1 = duelData.player1;
-    const p2 = duelData.player2;
-    
+    $('gameScreen').classList.add('hidden'); $('resultScreen').classList.remove('hidden');
+    const p1 = duelData.player1, p2 = duelData.player2;
     $('resultTitle').textContent = winner ? `Winner: ${winner}` : 'Draw!';
     $('resultEmoji').textContent = winner ? '🏆' : '🤝';
     $('finalSteps').textContent = stepCount;
     $('finalTime').textContent = ((Date.now() - startTime) / 1000).toFixed(1) + 's';
-    
     let forfeitMsg = '';
     if (p1.disconnected || p1.forfeit) forfeitMsg = `${p1.displayName} disconnected and forfeited!`;
     else if (p2.disconnected || p2.forfeit) forfeitMsg = `${p2.displayName} disconnected and forfeited!`;
     $('forfeitMessage').textContent = forfeitMsg;
-    
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
+    await new Promise(r => setTimeout(r, 500));
     const ratingDisplay = $('ratingChangeDisplay');
-    
     if (currentUser && isRatedGame) {
         const snap = await get(ref(db, `users/${currentUser.uid}/rating`));
         if (snap.exists()) {
@@ -716,7 +490,6 @@ async function showResult(winner, duelData) {
             const change = preGameRating ? (newRating.rating - preGameRating).toFixed(1) : 0;
             const changeColor = change > 0 ? 'text-green-400' : 'text-red-400';
             const changeSign = change > 0 ? '+' : '';
-            
             ratingDisplay.innerHTML = `
                 <p class="text-blue-400 font-bold">Your New Rating: ${Math.round(newRating.rating)}</p>
                 ${preGameRating ? `<p class="${changeColor} text-sm">${changeSign}${change} rating change</p>` : ''}
@@ -728,33 +501,18 @@ async function showResult(winner, duelData) {
     }
 }
 
-$('returnLobbyBtn').addEventListener('click', async () => {
-    resultScreen.classList.add('hidden');
-    lobbyScreen.classList.remove('hidden');
-    
-    $('duelCodeInput').value = '';
-    $('lobbyStatus').textContent = '';
-    
+$('returnLobbyBtn').onclick = async () => {
+    $('resultScreen').classList.add('hidden'); $('lobbyScreen').classList.remove('hidden');
+    $('duelCodeInput').value = ''; $('lobbyStatus').textContent = '';
     if (duelRef) {
         const snap = await get(duelRef);
         const data = snap.val();
         if (data) {
             const playerKey = (data.player1 && data.player1.uid === currentUser?.uid) ? 'player1' : 'player2';
-            const playerRef = ref(db, `duels/${duelID}/${playerKey}`);
-            onDisconnect(playerRef).cancel();
+            onDisconnect(ref(db, `duels/${duelID}/${playerKey}`)).cancel();
         }
-        
         await remove(duelRef);
     }
-    
-    if (currentUser) {
-        await displayUserRating(currentUser.uid);
-    }
-    
-    resetGameState();
-});
-
-// ==================== STATE MANAGEMENT ====================
-function resetDuelState() {
-    duelID = null;
-    duelRef =
+    if (currentUser) await displayUserRating(currentUser.uid);
+    duelID = null; duelRef = null; gameStarted = false; ratingUpdated = false; gameFinishedNormally = false;
+};
