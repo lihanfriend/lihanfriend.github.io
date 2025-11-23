@@ -674,7 +674,10 @@ $('returnLobbyBtn').onclick = async () => {
     }
     if (currentUser) {
         await displayUserRating(currentUser.uid);
-        await loadLeaderboard();
+        // Only reload leaderboard if it's currently visible
+        if (!$('leaderboardContainer').classList.contains('hidden')) {
+            await loadLeaderboard();
+        }
     }
     duelID = null; duelRef = null; gameStarted = false; ratingUpdated = false; gameFinishedNormally = false;
 };
