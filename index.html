@@ -47,6 +47,20 @@
       <h2 class="text-3xl font-bold mb-2">Collatz Racing Lobby</h2>
       <p class="text-sm text-gray-400" id="userInfoDisplay"></p>
       <div id="ratingDisplay" class="mt-2"></div>
+      <div id="rdDisplay" class="mt-1 text-sm"></div>
+      <div class="mt-3 bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 max-w-md mx-auto">
+        <p class="text-xs text-gray-300 leading-relaxed">
+          <span class="font-semibold text-blue-400">Rating Deviation (RD):</span> Lower RD means your rating is more stable. Above 110 is provisional. To be included in the rankings, your RD must be under 80.
+        </p>
+      </div>
+    </div>
+    
+    <!-- Leaderboard -->
+    <div class="bg-white/5 rounded-lg p-4">
+      <h3 class="text-xl font-bold mb-3 text-center text-blue-400">🏆 Top Players</h3>
+      <div id="leaderboard" class="space-y-2 max-h-64 overflow-y-auto">
+        <p class="text-gray-400 text-sm text-center">Loading leaderboard...</p>
+      </div>
     </div>
     
     <!-- Rated/Casual Toggle -->
