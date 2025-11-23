@@ -6,13 +6,24 @@
 <title>Collatz Racing</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
-/* Animations */
-@keyframes pulse-glow {0%,100%{box-shadow:0 0 20px rgba(59,130,246,0.5);}50%{box-shadow:0 0 40px rgba(59,130,246,0.8);} }
-.pulse-glow{animation:pulse-glow 2s ease-in-out infinite;}
-@keyframes slide-in{from{transform:translateY(-20px);opacity:0;}to{transform:translateY(0);opacity:1;}}
-.slide-in{animation:slide-in 0.5s ease-out;}
-@keyframes shake{0%,100%{transform:translateX(0);}10%,30%,50%,70%,90%{transform:translateX(-10px);}20%,40%,60%,80%{transform:translateX(10px);} }
-.shake{animation:shake 0.5s ease-in-out;}
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(59, 130, 246, 0.5); }
+  50% { box-shadow: 0 0 40px rgba(59, 130, 246, 0.8); }
+}
+.pulse-glow { animation: pulse-glow 2s ease-in-out infinite; }
+
+@keyframes slide-in {
+  from { transform: translateY(-20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.slide-in { animation: slide-in 0.5s ease-out; }
+
+@keyframes bounce-in {
+  0% { transform: scale(0.8); opacity: 0; }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); opacity: 1; }
+}
+.bounce-in { animation: bounce-in 0.5s ease-out; }
 </style>
 </head>
 <body class="bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 min-h-screen text-white">
@@ -27,16 +38,28 @@
       class="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-bold py-4 px-8 rounded-lg transition-all transform hover:scale-105 pulse-glow text-xl">
       Sign in with Google
     </button>
-    <div id="userInfo" class="mt-4 text-gray-300 text-sm hidden"></div>
   </div>
 
-  <!-- Lobby / Duel Screen -->
-  <div id="duelLobby" class="hidden bg-white/10 backdrop-blur-md rounded-2xl p-8 border border-white/20 space-y-6">
+  <!-- Lobby Screen -->
+  <div id="lobbyScreen" class="hidden bg-white/10 backdrop-blur-md rounded-2xl p-8 border border-white/20 space-y-6">
+    <!-- Header -->
     <div class="text-center">
       <h2 class="text-3xl font-bold mb-2">Collatz Racing Lobby</h2>
-      <p class="text-sm text-gray-400" id="userInfo2"></p>
+      <p class="text-sm text-gray-400" id="userInfoDisplay"></p>
+      <div id="ratingDisplay" class="mt-2"></div>
     </div>
     
+    <!-- Rated/Casual Toggle -->
+    <div class="flex items-center justify-center gap-3 bg-white/5 rounded-lg p-4">
+      <span class="text-sm text-gray-400">🎮 Casual</span>
+      <label class="relative inline-flex items-center cursor-pointer">
+        <input type="checkbox" id="ratedToggle" class="sr-only peer" checked>
+        <div class="w-11 h-6 bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+      </label>
+      <span class="text-sm font-semibold text-blue-400">⭐ Rated</span>
+    </div>
+    
+    <!-- Create/Join Controls -->
     <div class="text-center space-y-4">
       <button id="createDuelBtn" 
         class="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-bold py-3 px-8 rounded-lg transition-all transform hover:scale-105 w-full max-w-md">
@@ -44,7 +67,7 @@
       </button>
       
       <div class="flex gap-2 max-w-md mx-auto">
-        <input type="text" id="duelIDInput" placeholder="Enter Duel Code" 
+        <input type="text" id="duelCodeInput" placeholder="Enter Duel Code" 
           class="flex-1 px-4 py-3 rounded-lg text-black text-center font-mono uppercase tracking-wider"
           maxlength="6">
         <button id="joinDuelBtn" 
@@ -54,8 +77,9 @@
       </div>
     </div>
     
-    <p class="text-gray-300 text-center min-h-[24px]" id="duelStatus"></p>
+    <p class="text-gray-300 text-center min-h-[24px]" id="lobbyStatus"></p>
     
+    <!-- Logout -->
     <div class="text-center pt-4 border-t border-white/10">
       <button id="logoutBtn" class="text-sm text-red-400 hover:text-red-300 underline transition-colors">
         Sign out
@@ -65,21 +89,28 @@
 
   <!-- Game Screen -->
   <div id="gameScreen" class="hidden space-y-6">
-    <!-- Stats -->
+    <!-- Game Mode Badge -->
+    <div class="text-center">
+      <span id="gameModeBadge" class="inline-block px-4 py-2 rounded-full text-sm font-semibold bg-blue-500/30 border border-blue-500/50">
+        ⭐ Rated Game
+      </span>
+    </div>
+
+    <!-- Player Stats -->
     <div class="grid grid-cols-2 gap-4">
       <div class="bg-white/10 backdrop-blur-md rounded-xl p-4 text-center border border-white/20">
         <p class="text-sm text-gray-400 mb-1">Your Number</p>
-        <p class="text-3xl font-bold text-yellow-400" id="currentNumber"></p>
-        <p class="text-sm text-gray-400 mt-1">Steps: <span id="stepCount">0</span></p>
+        <p class="text-3xl font-bold text-yellow-400" id="yourNumber"></p>
+        <p class="text-sm text-gray-400 mt-1">Steps: <span id="yourSteps">0</span></p>
       </div>
       <div class="bg-white/10 backdrop-blur-md rounded-xl p-4 text-center border border-white/20">
         <p class="text-sm text-gray-400 mb-1">Opponent's Number</p>
         <p class="text-3xl font-bold text-pink-400" id="opponentNumber">?</p>
-        <p class="text-sm text-gray-400 mt-1">Steps: <span id="opponentStepCount">0</span></p>
+        <p class="text-sm text-gray-400 mt-1">Steps: <span id="opponentSteps">0</span></p>
       </div>
     </div>
 
-    <!-- Input -->
+    <!-- Input Area -->
     <div class="bg-white/10 backdrop-blur-md rounded-2xl p-8 border border-white/20">
       <label class="block text-center text-lg font-semibold mb-4 text-gray-300">What's the next number?</label>
       <div class="flex gap-3">
@@ -91,15 +122,23 @@
           Submit
         </button>
       </div>
-      <div id="feedback" class="mt-4 text-center text-lg font-semibold h-8"></div>
-      <div class="mt-2 text-center text-sm text-gray-400">Time: <span id="timer">0.0s</span></div>
+      <div id="feedback" class="mt-4 text-center text-lg font-semibold min-h-[28px]"></div>
+      <div class="mt-2 text-center text-sm text-gray-400">Time: <span id="gameTimer">0.0s</span></div>
+      
+      <!-- Sequence Log -->
+      <div class="mt-6 pt-4 border-t border-white/10">
+        <p class="text-sm text-gray-400 mb-2 text-center">Your Sequence:</p>
+        <div id="sequenceLog" class="flex flex-wrap gap-2 justify-center items-center"></div>
+      </div>
     </div>
   </div>
 
   <!-- Result Screen -->
   <div id="resultScreen" class="hidden bg-white/10 backdrop-blur-md rounded-2xl p-8 text-center border border-white/20 slide-in">
-    <div class="text-8xl mb-6" id="resultEmoji"></div>
+    <div class="text-8xl mb-6 bounce-in" id="resultEmoji"></div>
     <h2 class="text-4xl font-bold mb-4" id="resultTitle"></h2>
+    <div id="forfeitMessage" class="text-red-400 text-sm mb-4"></div>
+    
     <div class="bg-white/5 rounded-lg p-6 mb-6 max-w-md mx-auto">
       <div class="grid grid-cols-2 gap-4 text-left">
         <div>
@@ -111,7 +150,9 @@
           <p class="text-2xl font-bold text-purple-400" id="finalTime"></p>
         </div>
       </div>
+      <div id="ratingChangeDisplay" class="mt-4"></div>
     </div>
+    
     <button id="returnLobbyBtn"
       class="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-bold py-3 px-8 rounded-lg transition-all transform hover:scale-105">
       Return to Lobby
@@ -119,7 +160,6 @@
   </div>
 </div>
 
-<!-- Load firebase libs (these are used by index.js which is a module) -->
 <script type="module" src="index.js"></script>
 </body>
 </html>
