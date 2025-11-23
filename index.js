@@ -343,7 +343,7 @@ async function loadLeaderboard() {
             // Check if rating object exists and has required properties
             if (data && data.rating && typeof data.rating.rating === 'number' && 
                 typeof data.rating.games === 'number' && typeof data.rating.rd === 'number') {
-                if (data.rating.games >= 3 && data.rating.rd < 80) {
+                if (data.rating.games >= 3 && data.rating.rd < 85) {
                     users.push({
                         uid: child.key,
                         displayName: data.rating.displayName || 'Anonymous',
@@ -359,7 +359,7 @@ async function loadLeaderboard() {
         const top10 = users.slice(0, 10);
         
         if (top10.length === 0) {
-            $('leaderboard').innerHTML = '<p class="text-gray-400 text-sm text-center">No ranked players yet (3+ games, RD &lt; 80 required)</p>';
+            $('leaderboard').innerHTML = '<p class="text-gray-400 text-sm text-center">No ranked players yet (3+ games, RD &lt; <85 required)</p>';
             return;
         }
         
