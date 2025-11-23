@@ -662,6 +662,7 @@ async function showResult(winner, duelData) {
 $('returnLobbyBtn').onclick = async () => {
     $('resultScreen').classList.add('hidden'); $('lobbyScreen').classList.remove('hidden');
     $('duelCodeInput').value = ''; $('lobbyStatus').textContent = '';
+    $('answerInput').value = ''; // Clear answer input when returning to lobby
     if (duelRef) {
         const snap = await get(duelRef);
         const data = snap.val();
