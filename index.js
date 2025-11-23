@@ -326,67 +326,6 @@ async function updatePlayerRating(duelData) {
     await displayUserRating(currentUser.uid);
 }
 
-async function updateBothPlayersRatings(duelData) {
-    if (!isRatedGame) return;
-    
-    const p1 = duelData.player1, p2 = duelData.player2;
-    if (!p1 || !p2) return;
-    
-    // Get both players' current ratings
-    const p1Snap = await get(ref(db, `users/${p1.uid}/rating`));
-    const p2Snap = await get(ref(db, `users/${p2.uid}/rating`));
-    
-    const p1Rating = p1Snap.val() || { rating: 1500, rd: 350, vol: 0.06, games: 0 };
-    const p2Rating = p2Snap.val() || { rating: 1500, rd: 350, vol: 0.06, games: 0 };
-    
-    // Create Glicko2 objects for both players
-    const p1Glicko = new Glicko2(p1Rating.rating, p1Rating.rd, p1Rating.vol);
-    const p2Glicko = new Glicko2(p2Rating.rating, p2Rating.rd, p2Rating.vol);
-    
-    // Determine winner and calculate scores
-    const winner = determineWinner(duelData);
-    let p1Score, p2Score;
-    
-    if (winner === p1.displayName) {
-        p1Score = 1;
-        p2Score = 0;
-    } else if (winner === p2.displayName) {
-        p1Score = 0;
-        p2Score = 1;
-    } else {
-        p1Score = 0.5;
-        p2Score = 0.5;
-    }
-    
-    // Update both players' ratings
-    p1Glicko.update(p2Rating.rating, p2Rating.rd, p1Score);
-    p2Glicko.update(p1Rating.rating, p1Rating.rd, p2Score);
-    
-    // Save both players' new ratings
-    await set(ref(db, `users/${p1.uid}/rating`), {
-        rating: p1Glicko.rating, 
-        rd: p1Glicko.rd, 
-        vol: p1Glicko.vol, 
-        games: p1Rating.games + 1,
-        email: p1.email || 'no-email@example.com', 
-        displayName: p1.displayName
-    });
-    
-    await set(ref(db, `users/${p2.uid}/rating`), {
-        rating: p2Glicko.rating, 
-        rd: p2Glicko.rd, 
-        vol: p2Glicko.vol, 
-        games: p2Rating.games + 1,
-        email: p2.email || 'no-email@example.com', 
-        displayName: p2.displayName
-    });
-    
-    // Update current user's display if they're one of the players
-    if (currentUser && (currentUser.uid === p1.uid || currentUser.uid === p2.uid)) {
-        await displayUserRating(currentUser.uid);
-    }
-}
-
 // ==================== LEADERBOARD ====================
 async function loadLeaderboard() {
     try {
@@ -543,6 +482,7 @@ function listenToDuel() {
             if (!ratingUpdated) {
                 if (isRatedGame) await updatePlayerRating(data);
                 ratingUpdated = true; gameFinishedNormally = true;
+                showResult(determineWinner(data), data);
             }
         }
     });
