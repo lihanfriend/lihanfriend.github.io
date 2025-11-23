@@ -32,64 +32,133 @@ class Glicko2 {
         this.vol = vol;
     }
 
+    // ---- Conversions ----
     toGlicko2(r) { return (r - 1500) / GLICKO2_SCALE; }
     fromGlicko2(mu) { return mu * GLICKO2_SCALE + 1500; }
     rdToGlicko2(rd) { return rd / GLICKO2_SCALE; }
     rdFromGlicko2(phi) { return phi * GLICKO2_SCALE; }
-    g(phi) { return 1 / Math.sqrt(1 + 3 * phi * phi / (Math.PI * Math.PI)); }
+
+    // ---- Glicko-2 Helper Functions ----
+    g(phi) { return 1 / Math.sqrt(1 + (3 * phi * phi) / (Math.PI * Math.PI)); }
     E(mu, muJ, phiJ) { return 1 / (1 + Math.exp(-this.g(phiJ) * (mu - muJ))); }
 
+    /**
+     * Standard single-opponent update (backward compatible)
+     */
     update(opponentRating, opponentRD, score) {
+        return this.updateMany([{ rating: opponentRating, rd: opponentRD, score }]);
+    }
+
+    /**
+     * Multi-match rating period update
+     */
+    updateMany(matches) {
+        if (!matches || matches.length === 0) return this;
+
         const mu = this.toGlicko2(this.rating);
         const phi = this.rdToGlicko2(this.rd);
-        const muJ = this.toGlicko2(opponentRating);
-        const phiJ = this.rdToGlicko2(opponentRD);
-        const gPhi = this.g(phiJ);
-        const e = this.E(mu, muJ, phiJ);
-        const v = 1 / (gPhi * gPhi * e * (1 - e));
-        const delta = v * gPhi * (score - e);
-        const sigma = this.computeNewVolatility(phi, v, delta);
-        const phiStar = Math.sqrt(phi * phi + sigma * sigma);
+
+        // ---- Compute v ----
+        let invV = 0;
+        for (const m of matches) {
+            const muJ = this.toGlicko2(m.rating);
+            const phiJ = this.rdToGlicko2(m.rd);
+            const g = this.g(phiJ);
+            const E = 1 / (1 + Math.exp(-g * (mu - muJ)));
+            invV += g * g * E * (1 - E);
+        }
+        const v = 1 / invV;
+
+        // ---- Compute Delta ----
+        let deltaSum = 0;
+        for (const m of matches) {
+            const muJ = this.toGlicko2(m.rating);
+            const phiJ = this.rdToGlicko2(m.rd);
+            const g = this.g(phiJ);
+            const E = 1 / (1 + Math.exp(-g * (mu - muJ)));
+            deltaSum += g * (m.score - E);
+        }
+        const delta = v * deltaSum;
+
+        // ---- Update volatility ----
+        const sigmaPrime = this.computeNewVolatility(phi, v, delta);
+
+        // ---- Step 5 ----
+        const phiStar = Math.sqrt(phi * phi + sigmaPrime * sigmaPrime);
+
+        // ---- Step 6 ----
         const phiPrime = 1 / Math.sqrt(1 / (phiStar * phiStar) + 1 / v);
-        const muPrime = mu + phiPrime * phiPrime * gPhi * (score - e);
+
+        // ---- Step 7 ----
+        let muPrime = mu;
+        for (const m of matches) {
+            const muJ = this.toGlicko2(m.rating);
+            const phiJ = this.rdToGlicko2(m.rd);
+            const g = this.g(phiJ);
+            const E = this.E(mu, muJ, phiJ);
+            muPrime += (phiPrime * phiPrime) * g * (m.score - E);
+        }
+
+        // ---- Final results ----
         this.rating = this.fromGlicko2(muPrime);
-        this.rd = this.rdFromGlicko2(phiPrime);
-        this.vol = sigma;
+        this.rd = Math.min(this.rdFromGlicko2(phiPrime), 350);
+        this.vol = Math.max(sigmaPrime, 0.0001);
+
         return this;
     }
 
+    /**
+     * Correct Glickman volatility iteration
+     */
     computeNewVolatility(phi, v, delta) {
-        const sigma = this.vol;
-        const a = Math.log(sigma * sigma);
+        const a = Math.log(this.vol * this.vol);
         const deltaSq = delta * delta;
         const phiSq = phi * phi;
+
         const f = (x) => {
-            const eX = Math.exp(x);
-            const phiSqPlusV = phiSq + v + eX;
-            const term1 = eX * (deltaSq - phiSq - v - eX) / (2 * phiSqPlusV * phiSqPlusV);
-            const term2 = (x - a) / (TAU * TAU);
-            return term1 - term2;
+            const ex = Math.exp(x);
+            const top = ex * (deltaSq - phiSq - v - ex);
+            const bottom = 2 * Math.pow(phiSq + v + ex, 2);
+            return (top / bottom) - ((x - a) / (TAU * TAU));
         };
+
         let A = a;
-        let B = deltaSq > phiSq + v ? Math.log(deltaSq - phiSq - v) : a - TAU;
-        while (f(B) < 0) B -= TAU;
+        let B;
+
+        if (deltaSq > phiSq + v) {
+            B = Math.log(deltaSq - phiSq - v);
+        } else {
+            B = a - TAU;
+        }
+
         let fA = f(A);
         let fB = f(B);
+
+        while (fB > 0) {
+            B -= TAU;
+            fB = f(B);
+        }
+
+        // Bisection
         while (Math.abs(B - A) > EPSILON) {
             const C = A + (A - B) * fA / (fB - fA);
             const fC = f(C);
-            if (fC * fB <= 0) {
+
+            if (fC * fB < 0) {
                 A = B;
                 fA = fB;
             } else {
                 fA = fA / 2;
             }
+
             B = C;
             fB = fC;
         }
+
         return Math.exp(A / 2);
     }
 }
+
 
 // ==================== STATE ====================
 let currentUser = null;
