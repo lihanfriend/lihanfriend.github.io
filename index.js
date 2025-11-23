@@ -199,24 +199,37 @@ async function initializeUserRating(uid) {
 }
 
 async function displayUserRating(uid) {
-    const snap = await get(ref(db, `users/${uid}/rating`));
-    if (snap.exists()) {
-        const data = snap.val();
-        const provisional = data.rd > 110 ? '?' : '';
-        const gamesText = data.games === 1 ? 'game' : 'games';
-        $('ratingDisplay').innerHTML = `<p class="text-lg font-bold text-blue-400">Rating: ${Math.round(data.rating)}${provisional} (${data.games} ${gamesText})</p>`;
-        
-        // Display RD with color coding
-        let rdColor = 'text-green-400';
-        let rdStatus = 'Stable';
-        if (data.rd > 110) {
-            rdColor = 'text-yellow-400';
-            rdStatus = 'Provisional';
-        } else if (data.rd >= 80) {
-            rdColor = 'text-orange-400';
-            rdStatus = 'Establishing';
+    try {
+        const snap = await get(ref(db, `users/${uid}/rating`));
+        if (snap.exists()) {
+            const data = snap.val();
+            const provisional = data.rd > 110 ? '?' : '';
+            const gamesText = data.games === 1 ? 'game' : 'games';
+            $('ratingDisplay').innerHTML = `<p class="text-lg font-bold text-blue-400">Rating: ${Math.round(data.rating)}${provisional} (${data.games} ${gamesText})</p>`;
+            
+            // Display RD with color coding - check if RD exists
+            if (typeof data.rd === 'number') {
+                let rdColor = 'text-green-400';
+                let rdStatus = 'Stable';
+                if (data.rd > 110) {
+                    rdColor = 'text-yellow-400';
+                    rdStatus = 'Provisional';
+                } else if (data.rd >= 80) {
+                    rdColor = 'text-orange-400';
+                    rdStatus = 'Establishing';
+                }
+                $('rdDisplay').innerHTML = `<p class="${rdColor}">RD: ${Math.round(data.rd)} (${rdStatus})</p>`;
+            } else {
+                $('rdDisplay').innerHTML = `<p class="text-gray-400">RD: Not available</p>`;
+            }
+        } else {
+            $('ratingDisplay').innerHTML = `<p class="text-gray-400">No rating data</p>`;
+            $('rdDisplay').innerHTML = '';
         }
-        $('rdDisplay').innerHTML = `<p class="${rdColor}">RD: ${Math.round(data.rd)} (${rdStatus})</p>`;
+    } catch (error) {
+        console.error('Error displaying user rating:', error);
+        $('ratingDisplay').innerHTML = `<p class="text-red-400">Error loading rating</p>`;
+        $('rdDisplay').innerHTML = '';
     }
 }
 
@@ -246,53 +259,63 @@ async function updatePlayerRating(duelData) {
 
 // ==================== LEADERBOARD ====================
 async function loadLeaderboard() {
-    const usersRef = ref(db, 'users');
-    const snap = await get(usersRef);
-    if (!snap.exists()) {
-        $('leaderboard').innerHTML = '<p class="text-gray-400 text-sm text-center">No players yet</p>';
-        return;
-    }
-    
-    const users = [];
-    snap.forEach(child => {
-        const data = child.val();
-        if (data.rating && data.rating.games >= 3 && data.rating.rd < 80) {
-            users.push({
-                uid: child.key,
-                displayName: data.rating.displayName || 'Anonymous',
-                rating: data.rating.rating,
-                games: data.rating.games,
-                rd: data.rating.rd
-            });
-        }
-    });
-    
-    users.sort((a, b) => b.rating - a.rating);
-    const top10 = users.slice(0, 10);
-    
-    if (top10.length === 0) {
-        $('leaderboard').innerHTML = '<p class="text-gray-400 text-sm text-center">No ranked players yet (3+ games, RD &lt; 80 required)</p>';
-        return;
-    }
-    
-    $('leaderboard').innerHTML = top10.map((user, index) => {
-        const isCurrentUser = currentUser && user.uid === currentUser.uid;
-        const bgColor = isCurrentUser ? 'bg-blue-500/20 border border-blue-500/50' : 'bg-white/5';
-        const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`;
+    try {
+        const usersRef = ref(db, 'users');
+        const snap = await get(usersRef);
         
-        return `
-            <div class="${bgColor} rounded-lg p-3 flex items-center justify-between">
-                <div class="flex items-center gap-3">
-                    <span class="text-xl font-bold w-8">${medal}</span>
-                    <span class="font-semibold ${isCurrentUser ? 'text-blue-300' : 'text-white'}">${user.displayName}</span>
+        if (!snap.exists()) {
+            $('leaderboard').innerHTML = '<p class="text-gray-400 text-sm text-center">No players yet</p>';
+            return;
+        }
+        
+        const users = [];
+        snap.forEach(child => {
+            const data = child.val();
+            // Check if rating object exists and has required properties
+            if (data && data.rating && typeof data.rating.rating === 'number' && 
+                typeof data.rating.games === 'number' && typeof data.rating.rd === 'number') {
+                if (data.rating.games >= 3 && data.rating.rd < 80) {
+                    users.push({
+                        uid: child.key,
+                        displayName: data.rating.displayName || 'Anonymous',
+                        rating: data.rating.rating,
+                        games: data.rating.games,
+                        rd: data.rating.rd
+                    });
+                }
+            }
+        });
+        
+        users.sort((a, b) => b.rating - a.rating);
+        const top10 = users.slice(0, 10);
+        
+        if (top10.length === 0) {
+            $('leaderboard').innerHTML = '<p class="text-gray-400 text-sm text-center">No ranked players yet (3+ games, RD &lt; 80 required)</p>';
+            return;
+        }
+        
+        $('leaderboard').innerHTML = top10.map((user, index) => {
+            const isCurrentUser = currentUser && user.uid === currentUser.uid;
+            const bgColor = isCurrentUser ? 'bg-blue-500/20 border border-blue-500/50' : 'bg-white/5';
+            const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}.`;
+            
+            return `
+                <div class="${bgColor} rounded-lg p-3 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <span class="text-xl font-bold w-8">${medal}</span>
+                        <span class="font-semibold ${isCurrentUser ? 'text-blue-300' : 'text-white'}">${user.displayName}</span>
+                    </div>
+                    <div class="text-right">
+                        <span class="font-bold text-yellow-400">${Math.round(user.rating)}</span>
+                        <span class="text-gray-400 text-xs ml-2">(${user.games})</span>
+                    </div>
                 </div>
-                <div class="text-right">
-                    <span class="font-bold text-yellow-400">${Math.round(user.rating)}</span>
-                    <span class="text-gray-400 text-xs ml-2">(${user.games})</span>
-                </div>
-            </div>
-        `;
-    }).join('');
+            `;
+        }).join('');
+    } catch (error) {
+        console.error('Error loading leaderboard:', error);
+        $('leaderboard').innerHTML = '<p class="text-red-400 text-sm text-center">Error loading leaderboard</p>';
+    }
 }
 
 // ==================== DUEL MANAGEMENT ====================
