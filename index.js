@@ -302,28 +302,62 @@ async function displayUserRating(uid) {
     }
 }
 
-async function updatePlayerRating(duelData) {
-    if (!currentUser || !isRatedGame) return;
+async function updateBothPlayersRating(duelData) {
+    if (!isRatedGame) return;
+    
     const p1 = duelData.player1, p2 = duelData.player2;
     if (!p1 || !p2) return;
-    const isPlayer1 = p1.uid === currentUser.uid;
-    const myData = isPlayer1 ? p1 : p2;
-    const opponentData = isPlayer1 ? p2 : p1;
-    const mySnap = await get(ref(db, `users/${myData.uid}/rating`));
-    const oppSnap = await get(ref(db, `users/${opponentData.uid}/rating`));
-    const myRating = mySnap.val() || { rating: 1500, rd: 350, vol: 0.06, games: 0 };
-    const oppRating = oppSnap.val() || { rating: 1500, rd: 350, vol: 0.06, games: 0 };
-    const myGlicko = new Glicko2(myRating.rating, myRating.rd, myRating.vol);
+    
+    // Get both players' current ratings
+    const p1Snap = await get(ref(db, `users/${p1.uid}/rating`));
+    const p2Snap = await get(ref(db, `users/${p2.uid}/rating`));
+    
+    const p1Rating = p1Snap.val() || { rating: 1500, rd: 350, vol: 0.06, games: 0 };
+    const p2Rating = p2Snap.val() || { rating: 1500, rd: 350, vol: 0.06, games: 0 };
+    
+    // Determine winner
     const winner = determineWinner(duelData);
-    let myScore = 0.5;
-    if (winner === myData.displayName) myScore = 1;
-    else if (winner === opponentData.displayName) myScore = 0;
-    myGlicko.update(oppRating.rating, oppRating.rd, myScore);
-    await set(ref(db, `users/${myData.uid}/rating`), {
-        rating: myGlicko.rating, rd: myGlicko.rd, vol: myGlicko.vol, games: myRating.games + 1,
-        email: myData.email || 'no-email@example.com', displayName: myData.displayName
+    
+    // Calculate scores (1 = win, 0 = loss, 0.5 = draw)
+    let p1Score = 0.5, p2Score = 0.5;
+    if (winner === p1.displayName) {
+        p1Score = 1;
+        p2Score = 0;
+    } else if (winner === p2.displayName) {
+        p1Score = 0;
+        p2Score = 1;
+    }
+    
+    // Update player 1's rating
+    const p1Glicko = new Glicko2(p1Rating.rating, p1Rating.rd, p1Rating.vol);
+    p1Glicko.update(p2Rating.rating, p2Rating.rd, p1Score);
+    
+    await set(ref(db, `users/${p1.uid}/rating`), {
+        rating: p1Glicko.rating,
+        rd: p1Glicko.rd,
+        vol: p1Glicko.vol,
+        games: p1Rating.games + 1,
+        email: p1.email || 'no-email@example.com',
+        displayName: p1.displayName
     });
-    await displayUserRating(currentUser.uid);
+    
+    // Update player 2's rating
+    const p2Glicko = new Glicko2(p2Rating.rating, p2Rating.rd, p2Rating.vol);
+    p2Glicko.update(p1Rating.rating, p1Rating.rd, p2Score);
+    
+    await set(ref(db, `users/${p2.uid}/rating`), {
+        rating: p2Glicko.rating,
+        rd: p2Glicko.rd,
+        vol: p2Glicko.vol,
+        games: p2Rating.games + 1,
+        email: p2.email || 'no-email@example.com',
+        displayName: p2.displayName
+    });
+    
+    // Update display for current user
+    if (currentUser) {
+        await displayUserRating(currentUser.uid);
+    }
 }
 
 // ==================== LEADERBOARD ====================
@@ -445,7 +479,9 @@ $('joinDuelBtn').onclick = async () => {
 
 function listenToDuel() {
     if (!duelRef) return;
-    onValue(duelRef, async (snapshot) => {
+    
+    // Store the unsubscribe function
+    const unsubscribe = onValue(duelRef, async (snapshot) => {
         const data = snapshot.val();
         if (!data) {
             if (!gameStarted && duelID) alert('Duel was cancelled.');
@@ -454,14 +490,16 @@ function listenToDuel() {
                 $('lobbyScreen').classList.remove('hidden');
                 clearInterval(timerInterval);
             }
-            duelID = null; duelRef = null; return;
+            duelID = null; duelRef = null; 
+            unsubscribe(); // Clean up listener
+            return;
         }
         if (data.rated !== undefined) isRatedGame = data.rated;
         if (data.status === 'active' && !gameStarted) {
             gameStarted = true; gameFinishedNormally = false; startNumber = data.startNumber;
             clearCreateCooldown();
             if (duelRef) onDisconnect(duelRef).cancel();
-            setupDisconnectForfeit();
+            await setupDisconnectForfeit();
             await startGame();
         }
         const opponentKey = (data.player1 && data.player1.uid === currentUser?.uid) ? 'player2' : 'player1';
@@ -470,19 +508,28 @@ function listenToDuel() {
             $('opponentSteps').textContent = data[opponentKey].steps;
         }
         const p1 = data.player1, p2 = data.player2;
+        
+        // Check for disconnects or forfeits FIRST
         if (p1 && p2 && (p1.disconnected || p2.disconnected || p1.forfeit || p2.forfeit)) {
             if (!ratingUpdated) {
-                if (isRatedGame) await updatePlayerRating(data);
+                // Update BOTH players' ratings on disconnect/forfeit
+                if (isRatedGame) {
+                    await updateBothPlayersRating(data);
+                }
                 ratingUpdated = true; gameFinishedNormally = true;
                 showResult(determineWinner(data), data);
+                unsubscribe(); // Clean up listener after game ends
             }
             return;
         }
+        
+        // Then check for normal finish
         if (p1 && p2 && (p1.finished || p2.finished)) {
             if (!ratingUpdated) {
-                if (isRatedGame) await updatePlayerRating(data);
+                if (isRatedGame) await updateBothPlayersRating(data);
                 ratingUpdated = true; gameFinishedNormally = true;
                 showResult(determineWinner(data), data);
+                unsubscribe(); // Clean up listener after game ends
             }
         }
     });
