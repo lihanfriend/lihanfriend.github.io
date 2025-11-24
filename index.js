@@ -313,6 +313,8 @@ async function displayUserRating(uid) {
 }
 
 async function updateBothPlayersRating(duelData) {
+    console.log('updateBothPlayersRating called');
+    
     if (!isRatedGame) {
         console.log('Skipping rating update - not a rated game');
         return;
@@ -333,8 +335,13 @@ async function updateBothPlayersRating(duelData) {
         const p1Snap = await get(ref(db, `users/${p1.uid}`));
         const p2Snap = await get(ref(db, `users/${p2.uid}`));
         
-        const p1Rating = p1Snap.val() || { rating: 1500, rd: 350, vol: 0.06, games: 0 };
-        const p2Rating = p2Snap.val() || { rating: 1500, rd: 350, vol: 0.06, games: 0 };
+        if (!p1Snap.exists() || !p2Snap.exists()) {
+            console.error('One or both users not found in database');
+            return;
+        }
+        
+        const p1Rating = p1Snap.val();
+        const p2Rating = p2Snap.val();
         
         console.log('Current ratings - P1:', p1Rating.rating, 'P2:', p2Rating.rating);
         
@@ -522,11 +529,12 @@ function listenToDuel() {
     }
     
     let hasUnsubscribed = false;
+    let processingGameEnd = false; // Prevent concurrent game-end processing
     
     // Store the unsubscribe function
     duelUnsubscribe = onValue(duelRef, async (snapshot) => {
         // Prevent processing after unsubscribe
-        if (hasUnsubscribed) return;
+        if (hasUnsubscribed || processingGameEnd) return;
         
         const data = snapshot.val();
         if (!data) {
@@ -559,11 +567,17 @@ function listenToDuel() {
         }
         const p1 = data.player1, p2 = data.player2;
         
+        // Skip if we don't have both players yet
+        if (!p1 || !p2) return;
+        
         // Check for disconnects or forfeits FIRST
-        if (p1 && p2 && (p1.disconnected || p2.disconnected || p1.forfeit || p2.forfeit)) {
-            if (!ratingUpdated) {
+        if (p1.disconnected || p2.disconnected || p1.forfeit || p2.forfeit) {
+            if (!ratingUpdated && !processingGameEnd) {
+                processingGameEnd = true;
                 ratingUpdated = true;
                 gameFinishedNormally = true;
+                
+                console.log('Processing disconnect/forfeit');
                 
                 // Update BOTH players' ratings on disconnect/forfeit
                 if (isRatedGame) {
@@ -594,19 +608,18 @@ function listenToDuel() {
             return;
         }
         
-        // Check if game is actually over
-        // Game is over when: both finished, OR one reached 1, OR one got it wrong
-        const p1Won = p1.currentNumber === 1;
-        const p2Won = p2.currentNumber === 1;
-        const bothFinished = p1.finished && p2.finished;
-        const gameOver = bothFinished || p1Won || p2Won;
-        
-        if (p1 && p2 && gameOver) {
-            if (!ratingUpdated) {
+        // Check if either player finished (reached 1 or got wrong answer)
+        if (p1.finished || p2.finished) {
+            if (!ratingUpdated && !processingGameEnd) {
+                processingGameEnd = true;
                 ratingUpdated = true;
                 gameFinishedNormally = true;
                 
-                if (isRatedGame) await updateBothPlayersRating(data);
+                console.log('Processing game end - P1 finished:', p1.finished, 'P2 finished:', p2.finished);
+                
+                if (isRatedGame) {
+                    await updateBothPlayersRating(data);
+                }
                 
                 showResult(determineWinner(data), data);
                 
