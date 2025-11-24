@@ -594,8 +594,14 @@ function listenToDuel() {
             return;
         }
         
-        // Then check for normal finish
-        if (p1 && p2 && (p1.finished || p2.finished)) {
+        // Check if game is actually over
+        // Game is over when: both finished, OR one reached 1, OR one got it wrong
+        const p1Won = p1.currentNumber === 1;
+        const p2Won = p2.currentNumber === 1;
+        const bothFinished = p1.finished && p2.finished;
+        const gameOver = bothFinished || p1Won || p2Won;
+        
+        if (p1 && p2 && gameOver) {
             if (!ratingUpdated) {
                 ratingUpdated = true;
                 gameFinishedNormally = true;
