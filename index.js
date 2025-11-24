@@ -529,7 +529,7 @@ function listenToDuel() {
     }
     
     let hasUnsubscribed = false;
-    let processingGameEnd = false; // Prevent concurrent game-end processing
+    let processingGameEnd = false;
     
     // Store the unsubscribe function
     duelUnsubscribe = onValue(duelRef, async (snapshot) => {
@@ -579,6 +579,13 @@ function listenToDuel() {
                 
                 console.log('Processing disconnect/forfeit');
                 
+                // UNSUBSCRIBE IMMEDIATELY before async operations
+                if (!hasUnsubscribed && duelUnsubscribe) {
+                    hasUnsubscribed = true;
+                    duelUnsubscribe();
+                    duelUnsubscribe = null;
+                }
+                
                 // Update BOTH players' ratings on disconnect/forfeit
                 if (isRatedGame) {
                     await updateBothPlayersRating(data);
@@ -586,24 +593,16 @@ function listenToDuel() {
                 
                 showResult(determineWinner(data), data);
                 
-                // Delete the duel after a short delay to allow the other player to see results
+                // Delete the duel after a short delay
                 setTimeout(async () => {
                     try {
-                        if (duelRef) {
-                            await remove(duelRef);
-                            console.log('Duel deleted after disconnect');
-                        }
+                        const duelRefToDelete = ref(db, `duels/${duelID}`);
+                        await remove(duelRefToDelete);
+                        console.log('Duel deleted after disconnect');
                     } catch (error) {
                         console.error('Error deleting duel:', error);
                     }
                 }, 2000);
-                
-                // Clean up listener
-                if (!hasUnsubscribed && duelUnsubscribe) {
-                    hasUnsubscribed = true;
-                    duelUnsubscribe();
-                    duelUnsubscribe = null;
-                }
             }
             return;
         }
@@ -617,18 +616,19 @@ function listenToDuel() {
                 
                 console.log('Processing game end - P1 finished:', p1.finished, 'P2 finished:', p2.finished);
                 
-                if (isRatedGame) {
-                    await updateBothPlayersRating(data);
-                }
-                
-                showResult(determineWinner(data), data);
-                
-                // Clean up listener
+                // UNSUBSCRIBE IMMEDIATELY before async operations
                 if (!hasUnsubscribed && duelUnsubscribe) {
                     hasUnsubscribed = true;
                     duelUnsubscribe();
                     duelUnsubscribe = null;
                 }
+                
+                // Now do the async operations
+                if (isRatedGame) {
+                    await updateBothPlayersRating(data);
+                }
+                
+                showResult(determineWinner(data), data);
             }
         }
     });
