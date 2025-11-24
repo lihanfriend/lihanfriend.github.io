@@ -818,7 +818,8 @@ function determineWinner(duelData) {
 }
 
 async function showResult(winner, duelData) {
-    $('gameScreen').classList.add('hidden'); $('resultScreen').classList.remove('hidden');
+    $('gameScreen').classList.add('hidden'); 
+    $('resultScreen').classList.remove('hidden');
     const p1 = duelData.player1, p2 = duelData.player2;
     $('resultTitle').textContent = winner ? `Winner: ${winner}` : 'Draw!';
     $('resultEmoji').textContent = winner ? '🏆' : '🤝';
@@ -831,7 +832,7 @@ async function showResult(winner, duelData) {
     await new Promise(r => setTimeout(r, 500));
     const ratingDisplay = $('ratingChangeDisplay');
     if (currentUser && isRatedGame) {
-        const snap = await get(ref(db, `users/${currentUser.uid}/rating`));
+        const snap = await get(ref(db, `users/${currentUser.uid}`)); // FIXED: removed /rating
         if (snap.exists()) {
             const newRating = snap.val();
             const change = preGameRating ? (newRating.rating - preGameRating).toFixed(1) : 0;
