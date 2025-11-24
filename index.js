@@ -259,14 +259,11 @@ $('toggleLeaderboardBtn').onclick = async () => {
 
 // ==================== USER RATING ====================
 async function initializeUserRating(uid) {
-    const userRef = ref(db, `users/${uid}`);
+    const userRef = ref(db, `users/${uid}/rating`);
     const snap = await get(userRef);
     if (!snap.exists()) {
         await set(userRef, {
-            rating: 1500, 
-            rd: 350, 
-            vol: 0.06, 
-            games: 0,
+            rating: 1500, rd: 350, vol: 0.06, games: 0,
             email: currentUser.email || 'no-email@example.com',
             displayName: currentUser.displayName || 'Anonymous'
         });
@@ -280,7 +277,7 @@ async function initializeUserRating(uid) {
 
 async function displayUserRating(uid) {
     try {
-        const snap = await get(ref(db, `users/${uid}`));
+        const snap = await get(ref(db, `users/${uid}/rating`));
         if (snap.exists()) {
             const data = snap.val();
             const provisional = data.rd > 110 ? '?' : '';
@@ -330,8 +327,8 @@ async function updateBothPlayersRating(duelData) {
     
     try {
         // Get both players' current ratings
-        const p1Snap = await get(ref(db, `users/${p1.uid}`));
-        const p2Snap = await get(ref(db, `users/${p2.uid}`));
+        const p1Snap = await get(ref(db, `users/${p1.uid}/rating`));
+        const p2Snap = await get(ref(db, `users/${p2.uid}/rating`));
         
         const p1Rating = p1Snap.val() || { rating: 1500, rd: 350, vol: 0.06, games: 0 };
         const p2Rating = p2Snap.val() || { rating: 1500, rd: 350, vol: 0.06, games: 0 };
@@ -360,7 +357,7 @@ async function updateBothPlayersRating(duelData) {
         
         console.log('P1 new rating:', p1Glicko.rating, 'games:', p1Rating.games + 1);
         
-        await set(ref(db, `users/${p1.uid}`), {
+        await set(ref(db, `users/${p1.uid}/rating`), {
             rating: p1Glicko.rating,
             rd: p1Glicko.rd,
             vol: p1Glicko.vol,
@@ -375,7 +372,7 @@ async function updateBothPlayersRating(duelData) {
         
         console.log('P2 new rating:', p2Glicko.rating, 'games:', p2Rating.games + 1);
         
-        await set(ref(db, `users/${p2.uid}`), {
+        await set(ref(db, `users/${p2.uid}/rating`), {
             rating: p2Glicko.rating,
             rd: p2Glicko.rd,
             vol: p2Glicko.vol,
@@ -394,7 +391,6 @@ async function updateBothPlayersRating(duelData) {
         console.error('Error updating ratings:', error);
     }
 }
-
 // ==================== LEADERBOARD ====================
 async function loadLeaderboard() {
     try {
@@ -409,15 +405,15 @@ async function loadLeaderboard() {
         const users = [];
         snap.forEach(child => {
             const data = child.val();
-            if (data && typeof data.rating === 'number' && 
-                typeof data.games === 'number' && typeof data.rd === 'number') {
-                if (data.games >= 3 && data.rd < 85) {
+            if (data && data.rating && typeof data.rating.rating === 'number' && 
+                typeof data.rating.games === 'number' && typeof data.rating.rd === 'number') {
+                if (data.rating.games >= 3 && data.rating.rd < 85) {
                     users.push({
                         uid: child.key,
-                        displayName: data.displayName || 'Anonymous',
-                        rating: data.rating,
-                        games: data.games,
-                        rd: data.rd
+                        displayName: data.rating.displayName || 'Anonymous',
+                        rating: data.rating.rating,
+                        games: data.rating.games,
+                        rd: data.rating.rd
                     });
                 }
             }
@@ -662,7 +658,7 @@ function clearCreateCooldown() {
 // ==================== GAME ====================
 async function startGame() {
     if (currentUser && isRatedGame) {
-        const snap = await get(ref(db, `users/${currentUser.uid}`));
+        const snap = await get(ref(db, `users/${currentUser.uid}/rating`));
         if (snap.exists()) preGameRating = snap.val().rating;
     } else preGameRating = null;
     
@@ -689,10 +685,6 @@ async function startGame() {
     $('opponentNumber').textContent = startNumber; 
     $('opponentSteps').textContent = '0';
     $('gameTimer').textContent = '0.0s';
-    
-    // Clear the sequence log immediately
-    const log = $('sequenceLog');
-    if (log) log.innerHTML = '';
     
     // Make sure timer is not running
     clearInterval(timerInterval);
