@@ -156,6 +156,7 @@ let timerInterval = null;
 let createCooldown = false;
 let cooldownInterval = null;
 let isRatedGame = true;
+let processingGameEnd = false;
 
 // ==================== DOM ====================
 const $ = id => document.getElementById(id);
@@ -259,11 +260,14 @@ $('toggleLeaderboardBtn').onclick = async () => {
 
 // ==================== USER RATING ====================
 async function initializeUserRating(uid) {
-    const userRef = ref(db, `users/${uid}/rating`);
+    const userRef = ref(db, `users/${uid}`);
     const snap = await get(userRef);
     if (!snap.exists()) {
         await set(userRef, {
-            rating: 1500, rd: 350, vol: 0.06, games: 0,
+            rating: 1500, 
+            rd: 350, 
+            vol: 0.06, 
+            games: 0,
             email: currentUser.email || 'no-email@example.com',
             displayName: currentUser.displayName || 'Anonymous'
         });
@@ -277,7 +281,7 @@ async function initializeUserRating(uid) {
 
 async function displayUserRating(uid) {
     try {
-        const snap = await get(ref(db, `users/${uid}/rating`));
+        const snap = await get(ref(db, `users/${uid}`));
         if (snap.exists()) {
             const data = snap.val();
             const provisional = data.rd > 110 ? '?' : '';
@@ -310,6 +314,8 @@ async function displayUserRating(uid) {
 }
 
 async function updateBothPlayersRating(duelData) {
+    console.log('updateBothPlayersRating called');
+    
     if (!isRatedGame) {
         console.log('Skipping rating update - not a rated game');
         return;
@@ -327,11 +333,16 @@ async function updateBothPlayersRating(duelData) {
     
     try {
         // Get both players' current ratings
-        const p1Snap = await get(ref(db, `users/${p1.uid}/rating`));
-        const p2Snap = await get(ref(db, `users/${p2.uid}/rating`));
+        const p1Snap = await get(ref(db, `users/${p1.uid}`));
+        const p2Snap = await get(ref(db, `users/${p2.uid}`));
         
-        const p1Rating = p1Snap.val() || { rating: 1500, rd: 350, vol: 0.06, games: 0 };
-        const p2Rating = p2Snap.val() || { rating: 1500, rd: 350, vol: 0.06, games: 0 };
+        if (!p1Snap.exists() || !p2Snap.exists()) {
+            console.error('One or both users not found in database');
+            return;
+        }
+        
+        const p1Rating = p1Snap.val();
+        const p2Rating = p2Snap.val();
         
         console.log('Current ratings - P1:', p1Rating.rating, 'P2:', p2Rating.rating);
         
@@ -357,7 +368,7 @@ async function updateBothPlayersRating(duelData) {
         
         console.log('P1 new rating:', p1Glicko.rating, 'games:', p1Rating.games + 1);
         
-        await set(ref(db, `users/${p1.uid}/rating`), {
+        await set(ref(db, `users/${p1.uid}`), {
             rating: p1Glicko.rating,
             rd: p1Glicko.rd,
             vol: p1Glicko.vol,
@@ -372,7 +383,7 @@ async function updateBothPlayersRating(duelData) {
         
         console.log('P2 new rating:', p2Glicko.rating, 'games:', p2Rating.games + 1);
         
-        await set(ref(db, `users/${p2.uid}/rating`), {
+        await set(ref(db, `users/${p2.uid}`), {
             rating: p2Glicko.rating,
             rd: p2Glicko.rd,
             vol: p2Glicko.vol,
@@ -391,6 +402,7 @@ async function updateBothPlayersRating(duelData) {
         console.error('Error updating ratings:', error);
     }
 }
+
 // ==================== LEADERBOARD ====================
 async function loadLeaderboard() {
     try {
@@ -405,15 +417,15 @@ async function loadLeaderboard() {
         const users = [];
         snap.forEach(child => {
             const data = child.val();
-            if (data && data.rating && typeof data.rating.rating === 'number' && 
-                typeof data.rating.games === 'number' && typeof data.rating.rd === 'number') {
-                if (data.rating.games >= 3 && data.rating.rd < 85) {
+            if (data && typeof data.rating === 'number' && 
+                typeof data.games === 'number' && typeof data.rd === 'number') {
+                if (data.games >= 3 && data.rd < 85) {
                     users.push({
                         uid: child.key,
-                        displayName: data.rating.displayName || 'Anonymous',
-                        rating: data.rating.rating,
-                        games: data.rating.games,
-                        rd: data.rating.rd
+                        displayName: data.displayName || 'Anonymous',
+                        rating: data.rating,
+                        games: data.games,
+                        rd: data.rd
                     });
                 }
             }
@@ -511,6 +523,11 @@ $('joinDuelBtn').onclick = async () => {
 function listenToDuel() {
     if (!duelRef) return;
     
+    // Reset state flags for new game
+    ratingUpdated = false;
+    gameFinishedNormally = false;
+    processingGameEnd = false; // Reset global flag
+    
     // Unsubscribe from previous listener if it exists
     if (duelUnsubscribe) {
         duelUnsubscribe();
@@ -522,7 +539,7 @@ function listenToDuel() {
     // Store the unsubscribe function
     duelUnsubscribe = onValue(duelRef, async (snapshot) => {
         // Prevent processing after unsubscribe
-        if (hasUnsubscribed) return;
+        if (hasUnsubscribed || processingGameEnd) return;
         
         const data = snapshot.val();
         if (!data) {
@@ -555,11 +572,24 @@ function listenToDuel() {
         }
         const p1 = data.player1, p2 = data.player2;
         
+        // Skip if we don't have both players yet
+        if (!p1 || !p2) return;
+        
         // Check for disconnects or forfeits FIRST
-        if (p1 && p2 && (p1.disconnected || p2.disconnected || p1.forfeit || p2.forfeit)) {
-            if (!ratingUpdated) {
+        if (p1.disconnected || p2.disconnected || p1.forfeit || p2.forfeit) {
+            if (!ratingUpdated && !processingGameEnd) {
+                processingGameEnd = true;
                 ratingUpdated = true;
                 gameFinishedNormally = true;
+                
+                console.log('Processing disconnect/forfeit');
+                
+                // UNSUBSCRIBE IMMEDIATELY before async operations
+                if (!hasUnsubscribed && duelUnsubscribe) {
+                    hasUnsubscribed = true;
+                    duelUnsubscribe();
+                    duelUnsubscribe = null;
+                }
                 
                 // Update BOTH players' ratings on disconnect/forfeit
                 if (isRatedGame) {
@@ -568,44 +598,42 @@ function listenToDuel() {
                 
                 showResult(determineWinner(data), data);
                 
-                // Delete the duel after a short delay to allow the other player to see results
+                // Delete the duel after a short delay
                 setTimeout(async () => {
                     try {
-                        if (duelRef) {
-                            await remove(duelRef);
-                            console.log('Duel deleted after disconnect');
-                        }
+                        const duelRefToDelete = ref(db, `duels/${duelID}`);
+                        await remove(duelRefToDelete);
+                        console.log('Duel deleted after disconnect');
                     } catch (error) {
                         console.error('Error deleting duel:', error);
                     }
                 }, 2000);
-                
-                // Clean up listener
-                if (!hasUnsubscribed && duelUnsubscribe) {
-                    hasUnsubscribed = true;
-                    duelUnsubscribe();
-                    duelUnsubscribe = null;
-                }
             }
             return;
         }
         
-        // Then check for normal finish
-        if (p1 && p2 && (p1.finished || p2.finished)) {
-            if (!ratingUpdated) {
+        // Check if either player finished (reached 1 or got wrong answer)
+        if (p1.finished || p2.finished) {
+            if (!ratingUpdated && !processingGameEnd) {
+                processingGameEnd = true;
                 ratingUpdated = true;
                 gameFinishedNormally = true;
                 
-                if (isRatedGame) await updateBothPlayersRating(data);
+                console.log('Processing game end - P1 finished:', p1.finished, 'P2 finished:', p2.finished);
                 
-                showResult(determineWinner(data), data);
-                
-                // Clean up listener
+                // UNSUBSCRIBE IMMEDIATELY before async operations
                 if (!hasUnsubscribed && duelUnsubscribe) {
                     hasUnsubscribed = true;
                     duelUnsubscribe();
                     duelUnsubscribe = null;
                 }
+                
+                // Now do the async operations
+                if (isRatedGame) {
+                    await updateBothPlayersRating(data);
+                }
+                
+                showResult(determineWinner(data), data);
             }
         }
     });
@@ -658,7 +686,7 @@ function clearCreateCooldown() {
 // ==================== GAME ====================
 async function startGame() {
     if (currentUser && isRatedGame) {
-        const snap = await get(ref(db, `users/${currentUser.uid}/rating`));
+        const snap = await get(ref(db, `users/${currentUser.uid}`));
         if (snap.exists()) preGameRating = snap.val().rating;
     } else preGameRating = null;
     
@@ -685,6 +713,10 @@ async function startGame() {
     $('opponentNumber').textContent = startNumber; 
     $('opponentSteps').textContent = '0';
     $('gameTimer').textContent = '0.0s';
+    
+    // Clear the sequence log immediately
+    const log = $('sequenceLog');
+    if (log) log.innerHTML = '';
     
     // Make sure timer is not running
     clearInterval(timerInterval);
@@ -791,7 +823,8 @@ function determineWinner(duelData) {
 }
 
 async function showResult(winner, duelData) {
-    $('gameScreen').classList.add('hidden'); $('resultScreen').classList.remove('hidden');
+    $('gameScreen').classList.add('hidden'); 
+    $('resultScreen').classList.remove('hidden');
     const p1 = duelData.player1, p2 = duelData.player2;
     $('resultTitle').textContent = winner ? `Winner: ${winner}` : 'Draw!';
     $('resultEmoji').textContent = winner ? '🏆' : '🤝';
@@ -804,7 +837,7 @@ async function showResult(winner, duelData) {
     await new Promise(r => setTimeout(r, 500));
     const ratingDisplay = $('ratingChangeDisplay');
     if (currentUser && isRatedGame) {
-        const snap = await get(ref(db, `users/${currentUser.uid}/rating`));
+        const snap = await get(ref(db, `users/${currentUser.uid}`)); // FIXED: removed /rating
         if (snap.exists()) {
             const newRating = snap.val();
             const change = preGameRating ? (newRating.rating - preGameRating).toFixed(1) : 0;
