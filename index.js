@@ -311,10 +311,20 @@ async function displayUserRating(uid) {
 }
 
 async function updateBothPlayersRating(duelData) {
-    if (!isRatedGame) return;
+    if (!isRatedGame) {
+        console.log('Skipping rating update - not a rated game');
+        return;
+    }
     
     const p1 = duelData.player1, p2 = duelData.player2;
-    if (!p1 || !p2) return;
+    if (!p1 || !p2) {
+        console.log('Skipping rating update - missing player data');
+        return;
+    }
+    
+    console.log('Updating ratings for both players...');
+    console.log('Player 1:', p1.displayName, 'disconnected:', p1.disconnected, 'forfeit:', p1.forfeit);
+    console.log('Player 2:', p2.displayName, 'disconnected:', p2.disconnected, 'forfeit:', p2.forfeit);
     
     try {
         // Get both players' current ratings
@@ -324,8 +334,11 @@ async function updateBothPlayersRating(duelData) {
         const p1Rating = p1Snap.val() || { rating: 1500, rd: 350, vol: 0.06, games: 0 };
         const p2Rating = p2Snap.val() || { rating: 1500, rd: 350, vol: 0.06, games: 0 };
         
+        console.log('Current ratings - P1:', p1Rating.rating, 'P2:', p2Rating.rating);
+        
         // Determine winner
         const winner = determineWinner(duelData);
+        console.log('Winner:', winner);
         
         // Calculate scores (1 = win, 0 = loss, 0.5 = draw)
         let p1Score = 0.5, p2Score = 0.5;
@@ -337,9 +350,13 @@ async function updateBothPlayersRating(duelData) {
             p2Score = 1;
         }
         
+        console.log('Scores - P1:', p1Score, 'P2:', p2Score);
+        
         // Update player 1's rating
         const p1Glicko = new Glicko2(p1Rating.rating, p1Rating.rd, p1Rating.vol);
         p1Glicko.update(p2Rating.rating, p2Rating.rd, p1Score);
+        
+        console.log('P1 new rating:', p1Glicko.rating, 'games:', p1Rating.games + 1);
         
         await set(ref(db, `users/${p1.uid}/rating`), {
             rating: p1Glicko.rating,
@@ -354,6 +371,8 @@ async function updateBothPlayersRating(duelData) {
         const p2Glicko = new Glicko2(p2Rating.rating, p2Rating.rd, p2Rating.vol);
         p2Glicko.update(p1Rating.rating, p1Rating.rd, p2Score);
         
+        console.log('P2 new rating:', p2Glicko.rating, 'games:', p2Rating.games + 1);
+        
         await set(ref(db, `users/${p2.uid}/rating`), {
             rating: p2Glicko.rating,
             rd: p2Glicko.rd,
@@ -363,6 +382,8 @@ async function updateBothPlayersRating(duelData) {
             displayName: p2.displayName
         });
         
+        console.log('Both ratings updated successfully!');
+        
         // Update display for current user
         if (currentUser) {
             await displayUserRating(currentUser.uid);
@@ -371,7 +392,6 @@ async function updateBothPlayersRating(duelData) {
         console.error('Error updating ratings:', error);
     }
 }
-
 // ==================== LEADERBOARD ====================
 async function loadLeaderboard() {
     try {
