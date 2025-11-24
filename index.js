@@ -604,16 +604,22 @@ async function setupDisconnectForfeit() {
     const snap = await get(duelRef);
     const data = snap.val();
     if (!data) return;
+    
     const playerKey = (data.player1 && data.player1.uid === currentUser.uid) ? 'player1' : 'player2';
     const playerRef = ref(db, `duels/${duelID}/${playerKey}`);
     
-    // Set up disconnect handler with timestamp
+    // Set up disconnect handler to mark player as disconnected
     onDisconnect(playerRef).update({ 
         finished: true, 
         disconnected: true, 
         forfeit: true,
         disconnectTime: Date.now()
     });
+    
+    // Also set up the entire duel to be deleted after a short delay
+    // This gives the other player time to see the result before cleanup
+    const duelDeleteRef = ref(db, `duels/${duelID}`);
+    onDisconnect(duelDeleteRef).remove();
 }
 
 function startCreateCooldown() {
@@ -648,8 +654,14 @@ async function startGame() {
         const snap = await get(ref(db, `users/${currentUser.uid}/rating`));
         if (snap.exists()) preGameRating = snap.val().rating;
     } else preGameRating = null;
-    currentNumber = startNumber; stepCount = 0; sequence = [currentNumber];
-    $('lobbyScreen').classList.add('hidden'); $('gameScreen').classList.remove('hidden');
+    
+    currentNumber = startNumber; 
+    stepCount = 0; 
+    sequence = [currentNumber];
+    
+    $('lobbyScreen').classList.add('hidden'); 
+    $('gameScreen').classList.remove('hidden');
+    
     const badge = $('gameModeBadge');
     if (isRatedGame) {
         badge.textContent = '⭐ Rated Game';
@@ -658,21 +670,47 @@ async function startGame() {
         badge.textContent = '🎮 Casual Game';
         badge.className = 'inline-block px-4 py-2 rounded-full text-sm font-semibold bg-white/10 border border-white/20';
     }
-    $('answerInput').disabled = true; $('submitBtn').disabled = true; $('feedback').textContent = '';
-    $('yourSteps').textContent = '0'; $('opponentNumber').textContent = startNumber; $('opponentSteps').textContent = '0';
+    
+    $('answerInput').disabled = true; 
+    $('submitBtn').disabled = true; 
+    $('feedback').textContent = '';
+    $('yourSteps').textContent = '0'; 
+    $('opponentNumber').textContent = startNumber; 
+    $('opponentSteps').textContent = '0';
+    
+    // Clear timer display before countdown
+    $('gameTimer').textContent = '0.0s';
+    clearInterval(timerInterval);
+    
     for (let i = 3; i > 0; i--) {
-        $('yourNumber').textContent = i; $('yourNumber').className = 'text-6xl font-bold text-yellow-400 animate-pulse';
+        $('yourNumber').textContent = i; 
+        $('yourNumber').className = 'text-6xl font-bold text-yellow-400 animate-pulse';
         await new Promise(r => setTimeout(r, 1000));
     }
-    $('yourNumber').textContent = 'GO!'; $('yourNumber').className = 'text-6xl font-bold text-green-400';
+    
+    $('yourNumber').textContent = 'GO!'; 
+    $('yourNumber').className = 'text-6xl font-bold text-green-400';
     await new Promise(r => setTimeout(r, 500));
+    
     $('yourNumber').className = 'text-3xl font-bold text-yellow-400';
-    $('yourNumber').textContent = currentNumber; $('yourSteps').textContent = stepCount;
-    $('opponentNumber').textContent = '?'; $('answerInput').value = '';
-    $('answerInput').disabled = false; $('submitBtn').disabled = false;
-    startTime = Date.now(); clearInterval(timerInterval);
-    timerInterval = setInterval(() => { $('gameTimer').textContent = ((Date.now() - startTime) / 1000).toFixed(1) + 's'; }, 100);
-    updateSequenceLog(); setTimeout(() => $('answerInput').focus(), 100);
+    $('yourNumber').textContent = currentNumber; 
+    $('yourSteps').textContent = stepCount;
+    $('opponentNumber').textContent = '?'; 
+    $('answerInput').value = '';
+    $('answerInput').disabled = false; 
+    $('submitBtn').disabled = false;
+    
+    // Set startTime RIGHT BEFORE starting the timer
+    startTime = Date.now();
+    
+    // Start the timer interval
+    timerInterval = setInterval(() => { 
+        const elapsed = (Date.now() - startTime) / 1000;
+        $('gameTimer').textContent = elapsed.toFixed(1) + 's'; 
+    }, 100);
+    
+    updateSequenceLog(); 
+    setTimeout(() => $('answerInput').focus(), 100);
 }
 
 function updateSequenceLog() {
@@ -776,9 +814,17 @@ async function showResult(winner, duelData) {
 }
 
 $('returnLobbyBtn').onclick = async () => {
-    $('resultScreen').classList.add('hidden'); $('lobbyScreen').classList.remove('hidden');
-    $('duelCodeInput').value = ''; $('lobbyStatus').textContent = '';
+    $('resultScreen').classList.add('hidden'); 
+    $('lobbyScreen').classList.remove('hidden');
+    $('duelCodeInput').value = ''; 
+    $('lobbyStatus').textContent = '';
     $('answerInput').value = '';
+    
+    // Clear timer
+    clearInterval(timerInterval);
+    timerInterval = null;
+    startTime = 0;
+    $('gameTimer').textContent = '0.0s';
     
     // Clean up listener
     if (duelUnsubscribe) {
@@ -786,15 +832,28 @@ $('returnLobbyBtn').onclick = async () => {
         duelUnsubscribe = null;
     }
     
-    if (duelRef) {
-        const snap = await get(duelRef);
-        const data = snap.val();
-        if (data) {
-            const playerKey = (data.player1 && data.player1.uid === currentUser?.uid) ? 'player1' : 'player2';
-            onDisconnect(ref(db, `duels/${duelID}/${playerKey}`)).cancel();
+    // Cancel disconnect handlers and delete the duel
+    if (duelRef && duelID) {
+        try {
+            // Cancel any pending disconnect handlers
+            const snap = await get(duelRef);
+            if (snap.exists()) {
+                const data = snap.val();
+                if (data && currentUser) {
+                    const playerKey = (data.player1 && data.player1.uid === currentUser.uid) ? 'player1' : 'player2';
+                    const playerRef = ref(db, `duels/${duelID}/${playerKey}`);
+                    onDisconnect(playerRef).cancel();
+                    onDisconnect(duelRef).cancel();
+                }
+            }
+            
+            // Always try to delete the duel when returning to lobby
+            await remove(duelRef);
+        } catch (error) {
+            console.error('Error cleaning up duel:', error);
         }
-        await remove(duelRef);
     }
+    
     if (currentUser) {
         await displayUserRating(currentUser.uid);
         // Only reload leaderboard if it's currently visible
@@ -802,5 +861,10 @@ $('returnLobbyBtn').onclick = async () => {
             await loadLeaderboard();
         }
     }
-    duelID = null; duelRef = null; gameStarted = false; ratingUpdated = false; gameFinishedNormally = false;
+    
+    duelID = null; 
+    duelRef = null; 
+    gameStarted = false; 
+    ratingUpdated = false; 
+    gameFinishedNormally = false;
 };
