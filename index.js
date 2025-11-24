@@ -156,7 +156,6 @@ let timerInterval = null;
 let createCooldown = false;
 let cooldownInterval = null;
 let isRatedGame = true;
-let duelUnsubscribe = null;
 
 // ==================== DOM ====================
 const $ = id => document.getElementById(id);
