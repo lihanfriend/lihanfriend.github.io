@@ -172,8 +172,8 @@ let timerInterval = null;
 let createCooldown = false;
 let cooldownInterval = null;
 let isRatedGame = true;
+let isPublicGame = true;
 let processingGameEnd = false;
-let lobbyListUnsubscribe = null;
 
 // ==================== DOM ====================
 const $ = id => document.getElementById(id);
@@ -591,11 +591,17 @@ function startLobbyListListener() {
                 const data = child.val();
                 const code = child.key;
                 
-                if (data && (data.status === 'pending' || data.status === 'active')) {
+                // Only show public games or games the current user is in
+                const isPlayerInGame = data.player1 && data.player1.uid === currentUser?.uid ||
+                                       data.player2 && data.player2.uid === currentUser?.uid;
+                const isPublic = data.public !== undefined ? data.public : true; // Default to public for old duels
+                
+                if (data && (data.status === 'pending' || data.status === 'active') && (isPublic || isPlayerInGame)) {
                     duels.push({
                         code: code,
                         status: data.status,
                         rated: data.rated !== undefined ? data.rated : true,
+                        public: isPublic,
                         player1: data.player1 ? data.player1.displayName : 'Unknown',
                         player2: data.player2 ? data.player2.displayName : null,
                         startNumber: data.startNumber
@@ -631,6 +637,8 @@ function displayLobbyList(duels) {
         const statusText = duel.status === 'pending' ? '⏳ Waiting for opponent' : '⚔️ In Progress';
         const gameMode = duel.rated ? '⭐' : '🎮';
         const gameModeText = duel.rated ? 'Rated' : 'Casual';
+        const privacyIcon = duel.public ? '' : '🔒';
+        const privacyText = duel.public ? 'Public' : 'Private';
         const players = duel.player2 
             ? `${duel.player1} vs ${duel.player2}`
             : `${duel.player1} (waiting for opponent)`;
@@ -638,8 +646,8 @@ function displayLobbyList(duels) {
         const isMyDuel = currentUser && duel.code === duelID;
         const bgColor = isMyDuel ? 'bg-blue-500/20 border border-blue-500/50' : 'bg-white/5';
         
-        // Only show starting number if it's your duel
-        const showStartNumber = isMyDuel;
+        // Show starting number if it's your duel OR if the game is in progress (both players joined)
+        const showStartNumber = isMyDuel || (duel.status === 'active' && duel.player2);
         
         // Can join if: pending, not my duel, and not already in a game
         const canJoin = duel.status === 'pending' && !isMyDuel && !gameStarted;
@@ -656,7 +664,10 @@ function displayLobbyList(duels) {
                         <span class="${statusColor} text-xs">${statusText}</span>
                         ${canJoin ? '<span class="text-xs text-blue-400">← Click to join</span>' : ''}
                     </div>
-                    <span class="text-xs text-gray-400" title="${gameModeText}">${gameMode}</span>
+                    <div class="flex items-center gap-1">
+                        <span class="text-xs text-gray-400" title="${gameModeText}">${gameMode}</span>
+                        ${privacyIcon ? `<span class="text-xs text-gray-400" title="${privacyText}">${privacyIcon}</span>` : ''}
+                    </div>
                 </div>
                 <div class="text-sm text-gray-300">${players}</div>
                 ${showStartNumber ? `<div class="text-xs text-gray-400 mt-1">Starting number: ${duel.startNumber}</div>` : ''}
@@ -688,6 +699,10 @@ $('ratedToggle').onchange = (e) => {
     isRatedGame = e.target.checked;
 };
 
+$('publicToggle').onchange = (e) => {
+    isPublicGame = e.target.checked;
+};
+
 $('createDuelBtn').onclick = async () => {
     if (!currentUser) return alert("Please sign in first.");
     if (createCooldown) return alert("Please wait before creating another duel.");
@@ -717,7 +732,10 @@ $('createDuelBtn').onclick = async () => {
     duelID = await generateShortCode();
     duelRef = ref(db, `duels/${duelID}`);
     await set(duelRef, {
-        startNumber, status: 'pending', rated: isRatedGame,
+        startNumber, 
+        status: 'pending', 
+        rated: isRatedGame,
+        public: isPublicGame,
         startTime: null,
         player1: { uid: currentUser.uid, displayName: currentUser.displayName || 'Anonymous',
             email: currentUser.email || 'no-email@example.com', currentNumber: startNumber, steps: 0, finished: false }
