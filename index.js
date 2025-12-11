@@ -174,6 +174,7 @@ let cooldownInterval = null;
 let isRatedGame = true;
 let isPublicGame = true;
 let processingGameEnd = false;
+let lobbyListUnsubscribe = null;
 
 // ==================== DOM ====================
 const $ = id => document.getElementById(id);
