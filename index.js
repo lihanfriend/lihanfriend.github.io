@@ -591,12 +591,10 @@ function startLobbyListListener() {
                 const data = child.val();
                 const code = child.key;
                 
-                // Only show public games or games the current user is in
-                const isPlayerInGame = data.player1 && data.player1.uid === currentUser?.uid ||
-                                       data.player2 && data.player2.uid === currentUser?.uid;
+                // Only show public games in the lobby list
                 const isPublic = data.public !== undefined ? data.public : true; // Default to public for old duels
                 
-                if (data && (data.status === 'pending' || data.status === 'active') && (isPublic || isPlayerInGame)) {
+                if (data && (data.status === 'pending' || data.status === 'active') && isPublic) {
                     duels.push({
                         code: code,
                         status: data.status,
