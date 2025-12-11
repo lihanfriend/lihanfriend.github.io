@@ -173,6 +173,7 @@ let createCooldown = false;
 let cooldownInterval = null;
 let isRatedGame = true;
 let processingGameEnd = false;
+let lobbyListUnsubscribe = null;
 
 // ==================== DOM ====================
 const $ = id => document.getElementById(id);
@@ -214,14 +215,22 @@ onAuthStateChanged(auth, async (user) => {
         await displayUserRating(user.uid);
         $('userInfoDisplay').textContent = `Signed in as: ${user.displayName || 'Anonymous'}`;
         
-        // Hide leaderboard by default on login
+        // Hide leaderboard and lobby list by default on login
         $('leaderboardContainer').classList.add('hidden');
         $('toggleLeaderboardBtn').textContent = '🏆 Show Leaderboard';
+        $('lobbyListContainer').classList.add('hidden');
+        $('toggleLobbyListBtn').textContent = '🎮 Show Active Duels';
     } else {
         $('loginScreen').classList.remove('hidden');
         $('lobbyScreen').classList.add('hidden');
         $('gameScreen').classList.add('hidden');
         $('resultScreen').classList.add('hidden');
+        
+        // Clean up lobby list listener
+        if (lobbyListUnsubscribe) {
+            lobbyListUnsubscribe();
+            lobbyListUnsubscribe = null;
+        }
     }
 });
 
@@ -242,6 +251,12 @@ $('logoutBtn').onclick = async () => {
             duelUnsubscribe = null;
         }
         
+        // Clean up lobby list listener
+        if (lobbyListUnsubscribe) {
+            lobbyListUnsubscribe();
+            lobbyListUnsubscribe = null;
+        }
+        
         await signOut(auth);
         duelID = null;
         duelRef = null;
@@ -251,9 +266,11 @@ $('logoutBtn').onclick = async () => {
         clearCreateCooldown();
         $('lobbyStatus').textContent = '';
         
-        // Hide leaderboard on logout
+        // Hide leaderboard and lobby list on logout
         $('leaderboardContainer').classList.add('hidden');
         $('toggleLeaderboardBtn').textContent = '🏆 Show Leaderboard';
+        $('lobbyListContainer').classList.add('hidden');
+        $('toggleLobbyListBtn').textContent = '🎮 Show Active Duels';
     } catch (err) {
         console.error("Sign-out error:", err);
     }
@@ -271,6 +288,25 @@ $('toggleLeaderboardBtn').onclick = async () => {
     } else {
         container.classList.add('hidden');
         btn.textContent = '🏆 Show Leaderboard';
+    }
+};
+
+// ==================== LOBBY LIST TOGGLE ====================
+$('toggleLobbyListBtn').onclick = async () => {
+    const container = $('lobbyListContainer');
+    const btn = $('toggleLobbyListBtn');
+    
+    if (container.classList.contains('hidden')) {
+        container.classList.remove('hidden');
+        btn.textContent = '🎮 Hide Active Duels';
+        startLobbyListListener();
+    } else {
+        container.classList.add('hidden');
+        btn.textContent = '🎮 Show Active Duels';
+        if (lobbyListUnsubscribe) {
+            lobbyListUnsubscribe();
+            lobbyListUnsubscribe = null;
+        }
     }
 };
 
@@ -478,7 +514,82 @@ async function loadLeaderboard() {
         $('leaderboard').innerHTML = '<p class="text-red-400 text-sm text-center">Error loading leaderboard</p>';
     }
 }
+// ==================== LOBBY LIST ====================
+function startLobbyListListener() {
+    // Clean up existing listener
+    if (lobbyListUnsubscribe) {
+        lobbyListUnsubscribe();
+        lobbyListUnsubscribe = null;
+    }
+    
+    const duelsRef = ref(db, 'duels');
+    lobbyListUnsubscribe = onValue(duelsRef, (snapshot) => {
+        const duels = [];
+        
+        if (snapshot.exists()) {
+            snapshot.forEach(child => {
+                const data = child.val();
+                const code = child.key;
+                
+                if (data && (data.status === 'pending' || data.status === 'active')) {
+                    duels.push({
+                        code: code,
+                        status: data.status,
+                        rated: data.rated !== undefined ? data.rated : true,
+                        player1: data.player1 ? data.player1.displayName : 'Unknown',
+                        player2: data.player2 ? data.player2.displayName : null,
+                        startNumber: data.startNumber
+                    });
+                }
+            });
+        }
+        
+        displayLobbyList(duels);
+    });
+}
 
+function displayLobbyList(duels) {
+    const lobbyList = $('lobbyList');
+    
+    if (duels.length === 0) {
+        lobbyList.innerHTML = '<p class="text-gray-400 text-sm text-center">No active duels right now</p>';
+        return;
+    }
+    
+    // Sort: pending first, then active
+    duels.sort((a, b) => {
+        if (a.status === 'pending' && b.status === 'active') return -1;
+        if (a.status === 'active' && b.status === 'pending') return 1;
+        return 0;
+    });
+    
+    lobbyList.innerHTML = duels.map(duel => {
+        const statusColor = duel.status === 'pending' ? 'text-yellow-400' : 'text-green-400';
+        const statusText = duel.status === 'pending' ? '⏳ Waiting' : '⚔️ In Progress';
+        const gameMode = duel.rated ? '⭐' : '🎮';
+        const gameModeText = duel.rated ? 'Rated' : 'Casual';
+        const players = duel.player2 
+            ? `${duel.player1} vs ${duel.player2}`
+            : `${duel.player1} (waiting)`;
+        
+        const isMyDuel = currentUser && duel.code === duelID;
+        const bgColor = isMyDuel ? 'bg-blue-500/20 border border-blue-500/50' : 'bg-white/5';
+        
+        return `
+            <div class="${bgColor} rounded-lg p-3">
+                <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center gap-2">
+                        <span class="font-mono font-bold text-white">${duel.code}</span>
+                        <span class="${statusColor} text-xs">${statusText}</span>
+                    </div>
+                    <span class="text-xs text-gray-400" title="${gameModeText}">${gameMode}</span>
+                </div>
+                <div class="text-sm text-gray-300">${players}</div>
+                <div class="text-xs text-gray-400 mt-1">Starting number: ${duel.startNumber}</div>
+            </div>
+        `;
+    }).join('');
+}
 // ==================== DUEL MANAGEMENT ====================
 $('duelCodeInput').oninput = (e) => {
     e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
