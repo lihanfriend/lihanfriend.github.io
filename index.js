@@ -645,8 +645,8 @@ function displayLobbyList(duels) {
         const isMyDuel = currentUser && duel.code === duelID;
         const bgColor = isMyDuel ? 'bg-blue-500/20 border border-blue-500/50' : 'bg-white/5';
         
-        // Show starting number if it's your duel OR if the game is in progress (both players joined)
-        const showStartNumber = isMyDuel || (duel.status === 'active' && duel.player2);
+        // Only show starting number if the game is active (both players joined)
+        const showStartNumber = duel.status === 'active' && duel.player2;
         
         // Can join if: pending, not my duel, and not already in a game
         const canJoin = duel.status === 'pending' && !isMyDuel && !gameStarted;
