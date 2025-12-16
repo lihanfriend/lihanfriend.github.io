@@ -762,6 +762,28 @@ $('joinDuelBtn').onclick = async () => {
     if (!currentUser) return alert("Please sign in first.");
     const inputCode = $('duelCodeInput').value.trim().toUpperCase();
     if (!inputCode) return alert("Enter a duel code.");
+    
+    // Delete any existing pending duels created by this user before joining
+    try {
+        const duelsRef = ref(db, 'duels');
+        const snapshot = await get(duelsRef);
+        if (snapshot.exists()) {
+            const deletionPromises = [];
+            snapshot.forEach(child => {
+                const data = child.val();
+                const code = child.key;
+                // Delete if it's pending and created by current user
+                if (data && data.status === 'pending' && 
+                    data.player1 && data.player1.uid === currentUser.uid) {
+                    deletionPromises.push(remove(ref(db, `duels/${code}`)));
+                }
+            });
+            await Promise.all(deletionPromises);
+        }
+    } catch (error) {
+        console.error('Error cleaning up old duels before joining:', error);
+    }
+    
     duelID = inputCode;
     duelRef = ref(db, `duels/${duelID}`);
     const snap = await get(duelRef);
