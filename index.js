@@ -629,6 +629,25 @@ function startLobbyListListener() {
                     }
                 }
             });
+            // Clean up stuck "in progress" duels where both players disconnected
+            snapshot.forEach(child => {
+                const data = child.val();
+                const code = child.key;
+                
+                if (data && data.status === 'active') {
+                    const p1 = data.player1;
+                    const p2 = data.player2;
+                    
+                    // If both players are disconnected/forfeited, delete the duel
+                    if (p1 && p2 && 
+                        (p1.disconnected || p1.forfeit) && 
+                        (p2.disconnected || p2.forfeit)) {
+                        remove(ref(db, `duels/${code}`))
+                            .then(() => console.log('Cleaned up stuck duel:', code))
+                            .catch(err => console.error('Error cleaning stuck duel:', err));
+                    }
+                }
+            });
         }
         
         displayLobbyList(duels);
@@ -963,16 +982,14 @@ function listenToDuel() {
                 await showResult(determineWinner(data), data);
                 console.log('Result screen shown (disconnect)');
                 
-                // Delete the duel after a short delay
-                setTimeout(async () => {
-                    try {
-                        const duelRefToDelete = ref(db, `duels/${duelID}`);
-                        await remove(duelRefToDelete);
-                        console.log('Duel deleted after disconnect');
-                    } catch (error) {
-                        console.error('Error deleting duel:', error);
-                    }
-                }, 2000);
+                // Delete the duel immediately
+                try {
+                    const duelRefToDelete = ref(db, `duels/${duelID}`);
+                    await remove(duelRefToDelete);
+                    console.log('Duel deleted after disconnect');
+                } catch (error) {
+                    console.error('Error deleting duel:', error);
+                }
                 
                 console.log('=== DISCONNECT PROCESSING COMPLETE ===');
             }
@@ -1030,6 +1047,9 @@ async function setupDisconnectForfeit() {
         forfeit: true,
         disconnectTime: Date.now()
     });
+    
+    // Also set up a handler to delete the entire duel after a delay if both players disconnect
+    onDisconnect(duelRef).remove();
 }
 
 function startCreateCooldown() {
