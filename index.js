@@ -588,23 +588,45 @@ function startLobbyListListener() {
         const duels = [];
         
         if (snapshot.exists()) {
+            const userDuels = new Map(); // Track duels by user UID
+            
             snapshot.forEach(child => {
                 const data = child.val();
                 const code = child.key;
                 
-                // Only show public games in the lobby list
-                const isPublic = data.public !== undefined ? data.public : true; // Default to public for old duels
+                const isPublic = data.public !== undefined ? data.public : true;
                 
                 if (data && (data.status === 'pending' || data.status === 'active') && isPublic) {
+                    const p1uid = data.player1 ? data.player1.uid : null;
+                    
+                    // Track the most recent duel for each user
+                    if (p1uid && data.status === 'pending') {
+                        if (!userDuels.has(p1uid)) {
+                            userDuels.set(p1uid, []);
+                        }
+                        userDuels.get(p1uid).push(code);
+                    }
+                    
                     duels.push({
                         code: code,
                         status: data.status,
                         rated: data.rated !== undefined ? data.rated : true,
                         public: isPublic,
                         player1: data.player1 ? data.player1.displayName : 'Unknown',
+                        player1uid: p1uid,
                         player2: data.player2 ? data.player2.displayName : null,
                         startNumber: data.startNumber
                     });
+                }
+            });
+            
+            // Delete old duplicate duels from same user (keep only the last one)
+            userDuels.forEach((codes, uid) => {
+                if (codes.length > 1) {
+                    // Keep the last code, delete all others
+                    for (let i = 0; i < codes.length - 1; i++) {
+                        remove(ref(db, `duels/${codes[i]}`)).catch(err => console.error('Error removing duplicate:', err));
+                    }
                 }
             });
         }
@@ -659,7 +681,7 @@ function displayLobbyList(duels) {
             <div class="${bgColor} ${cursorClass} rounded-lg p-3 transition-all" 
                  data-duel-code="${duel.code}" 
                  data-can-join="${canJoin}"
-                 onclick="if(${canJoin}) handleDuelClick('${duel.code}')">
+                 ${canJoin ? `onclick="handleDuelClick('${duel.code}')"` : ''}>
                 <div class="flex items-center justify-between mb-2">
                     <div class="flex items-center gap-2">
                         <span class="font-mono font-bold text-white">${duel.code}</span>
