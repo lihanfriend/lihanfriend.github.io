@@ -731,6 +731,12 @@ $('createDuelBtn').onclick = async () => {
     if (!currentUser) return alert("Please sign in first.");
     if (createCooldown) return alert("Please wait before creating another duel.");
     
+    // Prevent spam clicking
+    if (gameStarted || duelID) return alert("You already have an active duel!");
+    
+    // Start cooldown immediately to prevent double-clicks
+    startCreateCooldown();
+    
     // Delete any existing pending duels created by this user
     try {
         const duelsRef = ref(db, 'duels');
@@ -778,8 +784,6 @@ $('createDuelBtn').onclick = async () => {
         btn.textContent = '🎮 Hide Active Duels';
         startLobbyListListener();
     }
-    
-    startCreateCooldown();
     listenToDuel();
 };
 
