@@ -659,7 +659,7 @@ function displayLobbyList(duels) {
             <div class="${bgColor} ${cursorClass} rounded-lg p-3 transition-all" 
                  data-duel-code="${duel.code}" 
                  data-can-join="${canJoin}"
-                 onclick="handleDuelClick('${duel.code}', ${canJoin})">
+                 onclick="if(${canJoin}) handleDuelClick('${duel.code}')">
                 <div class="flex items-center justify-between mb-2">
                     <div class="flex items-center gap-2">
                         <span class="font-mono font-bold text-white">${duel.code}</span>
@@ -679,19 +679,16 @@ function displayLobbyList(duels) {
 }
 
 // Add this new function right after displayLobbyList
-window.handleDuelClick = function(code, canJoin) {
-    if (!canJoin || !currentUser) return;
+window.handleDuelClick = function(code) {
+    if (!currentUser) return;
     
     const input = document.getElementById('duelCodeInput');
     const joinBtn = document.getElementById('joinDuelBtn');
     
-    // Auto-fill the code
     input.value = code;
     
-    // Confirm before joining
     const confirmed = confirm('Join duel ' + code + '?');
     if (confirmed) {
-        // Trigger the join button click
         joinBtn.click();
     }
 };
