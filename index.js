@@ -679,17 +679,20 @@ function displayLobbyList(duels) {
 }
 
 // Add this new function right after displayLobbyList
-window.handleDuelClick = async function(code, canJoin) {
+window.handleDuelClick = function(code, canJoin) {
     if (!canJoin || !currentUser) return;
     
-    // Auto-fill the code and trigger join
-    $('duelCodeInput').value = code;
+    const input = document.getElementById('duelCodeInput');
+    const joinBtn = document.getElementById('joinDuelBtn');
+    
+    // Auto-fill the code
+    input.value = code;
     
     // Confirm before joining
-    const confirmed = confirm(`Join duel ${code}?`);
+    const confirmed = confirm('Join duel ' + code + '?');
     if (confirmed) {
         // Trigger the join button click
-        $('joinDuelBtn').click();
+        joinBtn.click();
     }
 };
 // ==================== DUEL MANAGEMENT ====================
